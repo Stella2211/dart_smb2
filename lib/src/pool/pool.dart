@@ -7,10 +7,18 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'smb2_client.dart';
-import 'smb2_error_type.dart';
-import 'smb2_exceptions.dart';
-import 'smb2_types.dart';
+import 'package:meta/meta.dart';
+
+import '../ffi/native_lib.dart';
+import '../smb2_client.dart';
+import '../smb2_error_type.dart';
+import '../smb2_exceptions.dart';
+import '../smb2_types.dart';
+import 'handle.dart';
+import 'messages.dart';
+import 'worker.dart';
+
+export 'handle.dart' show Smb2PoolHandle, Smb2File;
 
 /// A pool of SMB2 worker isolates for non-blocking parallel operations.
 ///
@@ -31,8 +39,8 @@ import 'smb2_types.dart';
 /// await pool.disconnect();
 /// ```
 class Smb2Pool {
-  final List<_Worker> _workers;
-  final _ConnectParams _params;
+  final List<Worker> _workers;
+  final ConnectParams _params;
   int _next = 0;
   bool _closed = false;
 
@@ -42,6 +50,19 @@ class Smb2Pool {
   ///
   /// Each isolate opens its own TCP connection to the server.
   /// All isolates share the same credentials and target share.
+  ///
+  /// Workers are spawned **sequentially** — each spawn is `await`ed
+  /// before the next starts. This is the Dart-side replacement for the
+  /// legacy C wrapper's pthread mutex around `smb2_init_context` /
+  /// `smb2_destroy_context`: libsmb2 mutates a global `active_contexts`
+  /// list (init.c) without internal locking, and concurrent calls from
+  /// multiple OS threads (= multiple Dart isolates) race on that list.
+  /// Sequencing the spawns guarantees that at most one isolate is inside
+  /// `smb2_init_context` at any given moment within this pool.
+  ///
+  /// The startup cost is N × per-worker connect latency instead of
+  /// max(per-worker latency). For typical `workers = 4` and a local SMB
+  /// server that's ~100 ms vs ~25 ms — well below human-perceptible.
   static Future<Smb2Pool> connect({
     required String host,
     required String share,
@@ -50,31 +71,34 @@ class Smb2Pool {
     String? domain,
     int workers = 4,
     int timeoutSeconds = 30,
-    String? libPath,
     bool seal = false,
     bool signing = false,
     Smb2Version version = Smb2Version.any,
   }) async {
-    final params = _ConnectParams(
+    final params = ConnectParams(
       host: host,
       share: share,
       user: user,
       password: password,
       domain: domain,
       timeoutSeconds: timeoutSeconds,
-      libPath: libPath,
       seal: seal,
       signing: signing,
       version: version,
+      testLibOverride: debugLibSmb2PathOverride,
     );
-    final futures = List.generate(workers, (_) => _Worker.spawn(params));
-    late final List<_Worker> workerList;
+    final workerList = <Worker>[];
     try {
-      workerList = await Future.wait(futures);
+      for (var i = 0; i < workers; i++) {
+        workerList.add(await Worker.spawn(params));
+      }
     } catch (_) {
-      // Kill any workers that succeeded before the failure.
-      for (final f in futures) {
-        f.then((w) => w.close()).ignore();
+      // Spawn failure: tear down any workers that already came up so we
+      // don't leak isolates on the way out. `close()` is fire-and-forget
+      // here because the caller is about to see `rethrow` and we don't
+      // want to mask the original error with a teardown timeout.
+      for (final w in workerList) {
+        w.close().ignore();
       }
       rethrow;
     }
@@ -83,6 +107,13 @@ class Smb2Pool {
 
   /// Number of active workers.
   int get workerCount => _workers.length;
+
+  /// Package-internal view on the underlying [Worker] list. Read-only —
+  /// returning the live list lets the concurrency suite call
+  /// `killForTest()` and send fault-injection commands directly on a
+  /// worker. Reached via `lib/src/pool/test_hooks.dart`.
+  @internal
+  List<Worker> get workersForTest => _workers;
 
   /// List available shares on a server (no active connection needed).
   ///
@@ -93,12 +124,14 @@ class Smb2Pool {
     String? password,
     String? domain,
     int timeoutSeconds = 15,
-    String? libPath,
   }) async {
+    // Capture the test override here so the spawned isolate (which
+    // doesn't inherit the main isolate's static fields) can re-apply
+    // it before opening libsmb2.
+    final override = debugLibSmb2PathOverride;
     return await Isolate.run(() {
-      final client = libPath != null
-          ? Smb2Client.open(libPath)
-          : Smb2Client.open();
+      if (override != null) debugLibSmb2PathOverride = override;
+      final client = Smb2Client.open();
       return client.listShares(
         host: host,
         user: user,
@@ -109,7 +142,7 @@ class Smb2Pool {
     });
   }
 
-  _Worker get _nextWorker {
+  Worker get _nextWorker {
     if (_closed || _workers.isEmpty) {
       throw const Smb2Exception('Pool is closed');
     }
@@ -177,11 +210,11 @@ class Smb2Pool {
   /// and retries the flush transparently.
   Future<void> fsyncHandle(Smb2PoolHandle handle) async {
     try {
-      await handle._worker.send('fsync', {'handleId': handle._id});
+      await handle.worker.send('fsync', {'handleId': handle.id});
     } on Smb2Exception catch (e) {
       if (!_isConnectionError(e) || _closed) rethrow;
       await _reopenWriteHandle(handle);
-      await handle._worker.send('fsync', {'handleId': handle._id});
+      await handle.worker.send('fsync', {'handleId': handle.id});
     }
   }
 
@@ -191,15 +224,15 @@ class Smb2Pool {
   /// and retries the truncate transparently.
   Future<void> ftruncateHandle(Smb2PoolHandle handle, int length) async {
     try {
-      await handle._worker.send('ftruncate', {
-        'handleId': handle._id,
+      await handle.worker.send('ftruncate', {
+        'handleId': handle.id,
         'length': length,
       });
     } on Smb2Exception catch (e) {
       if (!_isConnectionError(e) || _closed) rethrow;
       await _reopenWriteHandle(handle);
-      await handle._worker.send('ftruncate', {
-        'handleId': handle._id,
+      await handle.worker.send('ftruncate', {
+        'handleId': handle.id,
         'length': length,
       });
     }
@@ -267,12 +300,12 @@ class Smb2Pool {
     var worker = _nextWorker;
     try {
       final handleId = await worker.send<int>('openFile', {'path': path});
-      return Smb2PoolHandle._(worker, handleId, path);
+      return Smb2PoolHandle(worker, handleId, path);
     } on Smb2Exception catch (e) {
       if (!_isConnectionError(e) || _closed) rethrow;
       worker = await _reconnectWorker(worker);
       final handleId = await worker.send<int>('openFile', {'path': path});
-      return Smb2PoolHandle._(worker, handleId, path);
+      return Smb2PoolHandle(worker, handleId, path);
     }
   }
 
@@ -292,14 +325,14 @@ class Smb2Pool {
   }
 
   Future<(Smb2PoolHandle, int)> _openFileWithSizeOn(
-    _Worker worker,
+    Worker worker,
     String path,
   ) async {
     final result = await worker.send<List<dynamic>>(
       'openFileWithSize',
       {'path': path},
     );
-    return (Smb2PoolHandle._(worker, result[0] as int, path), result[1] as int);
+    return (Smb2PoolHandle(worker, result[0] as int, path), result[1] as int);
   }
 
   /// Read [length] bytes at [offset] from an open handle.
@@ -312,16 +345,16 @@ class Smb2Pool {
     required int length,
   }) async {
     try {
-      return await handle._worker.send('readHandle', {
-        'handleId': handle._id,
+      return await handle.worker.send('readHandle', {
+        'handleId': handle.id,
         'offset': offset,
         'length': length,
       });
     } on Smb2Exception catch (e) {
       if (!_isConnectionError(e) || _closed) rethrow;
       await _reopenHandle(handle);
-      return await handle._worker.send('readHandle', {
-        'handleId': handle._id,
+      return await handle.worker.send('readHandle', {
+        'handleId': handle.id,
         'offset': offset,
         'length': length,
       });
@@ -330,11 +363,10 @@ class Smb2Pool {
 
   /// Close an open file handle.
   Future<void> closeHandle(Smb2PoolHandle handle) async {
-    if (handle._closed) return;
-    handle._closed = true;
-    Smb2PoolHandle._finalizer.detach(handle);
+    if (handle.closed) return;
+    handle.markClosed();
     try {
-      await handle._worker.send('closeHandle', {'handleId': handle._id});
+      await handle.worker.send('closeHandle', {'handleId': handle.id});
     } catch (_) {
       // Best-effort — the handle may already be invalid after reconnect.
     }
@@ -348,12 +380,12 @@ class Smb2Pool {
     var worker = _nextWorker;
     try {
       final handleId = await worker.send<int>('openFileWrite', {'path': path});
-      return Smb2PoolHandle._(worker, handleId, path);
+      return Smb2PoolHandle(worker, handleId, path);
     } on Smb2Exception catch (e) {
       if (!_isConnectionError(e) || _closed) rethrow;
       worker = await _reconnectWorker(worker);
       final handleId = await worker.send<int>('openFileWrite', {'path': path});
-      return Smb2PoolHandle._(worker, handleId, path);
+      return Smb2PoolHandle(worker, handleId, path);
     }
   }
 
@@ -367,16 +399,16 @@ class Smb2Pool {
     int offset = 0,
   }) async {
     try {
-      await handle._worker.send('writeHandle', {
-        'handleId': handle._id,
+      await handle.worker.send('writeHandle', {
+        'handleId': handle.id,
         'data': TransferableTypedData.fromList([data]),
         'offset': offset,
       });
     } on Smb2Exception catch (e) {
       if (!_isConnectionError(e) || _closed) rethrow;
       await _reopenWriteHandle(handle);
-      await handle._worker.send('writeHandle', {
-        'handleId': handle._id,
+      await handle.worker.send('writeHandle', {
+        'handleId': handle.id,
         'data': TransferableTypedData.fromList([data]),
         'offset': offset,
       });
@@ -384,25 +416,66 @@ class Smb2Pool {
   }
 
   /// Reconnect the worker and reopen the file for writing.
+  ///
+  /// Honors a concurrent [closeHandle] call: if the handle is marked
+  /// closed at any of the three observation points (entry, after the
+  /// reconnect await, after the new open), we throw a typed
+  /// connection error and best-effort close the just-opened handle.
+  /// Without this, a parallel `closeHandle(h) + readFromHandle(h)`
+  /// could result in the read path reopening a fresh handle that
+  /// nobody owns. Fix M4 from the 0.1.0 code review.
   Future<void> _reopenWriteHandle(Smb2PoolHandle handle) async {
-    handle._worker = await _reconnectWorker(handle._worker);
-    final newId = await handle._worker.send<int>(
+    _throwIfClosed(handle);
+    handle.worker = await _reconnectWorker(handle.worker);
+    _throwIfClosed(handle);
+    final newId = await handle.worker.send<int>(
       'openFileWrite',
-      {'path': handle._path},
+      {'path': handle.path},
     );
-    handle._id = newId;
-    handle._refreshFinalizer();
+    if (handle.closed) {
+      _closeOrphanHandle(handle.worker, newId);
+      _throwClosedDuringRetry();
+    }
+    handle.id = newId;
+    handle.refreshFinalizer();
   }
 
   /// Reconnect the worker and reopen the file, updating the handle in-place.
+  ///
+  /// See [_reopenWriteHandle] for the M4 fix details.
   Future<void> _reopenHandle(Smb2PoolHandle handle) async {
-    handle._worker = await _reconnectWorker(handle._worker);
-    final newId = await handle._worker.send<int>(
+    _throwIfClosed(handle);
+    handle.worker = await _reconnectWorker(handle.worker);
+    _throwIfClosed(handle);
+    final newId = await handle.worker.send<int>(
       'openFile',
-      {'path': handle._path},
+      {'path': handle.path},
     );
-    handle._id = newId;
-    handle._refreshFinalizer();
+    if (handle.closed) {
+      _closeOrphanHandle(handle.worker, newId);
+      _throwClosedDuringRetry();
+    }
+    handle.id = newId;
+    handle.refreshFinalizer();
+  }
+
+  static void _throwIfClosed(Smb2PoolHandle handle) {
+    if (handle.closed) _throwClosedDuringRetry();
+  }
+
+  static Never _throwClosedDuringRetry() {
+    throw const Smb2Exception(
+      'Handle was closed during reconnect',
+      null,
+      Smb2ErrorType.connection,
+    );
+  }
+
+  /// Fire-and-forget close on a handle we just reopened on the new
+  /// worker — only invoked when a concurrent [closeHandle] beat us to
+  /// the punch, so the caller no longer wants it.
+  static void _closeOrphanHandle(Worker worker, int handleId) {
+    worker.send('closeHandle', {'handleId': handleId}).ignore();
   }
 
   /// Write data from a [Stream] to a file without loading everything into RAM.
@@ -422,8 +495,8 @@ class Smb2Pool {
         // Send directly to the worker without retry — a reconnect would
         // reopen the file and lose track of how many bytes the server
         // actually received, causing data corruption.
-        await handle._worker.send('writeHandle', {
-          'handleId': handle._id,
+        await handle.worker.send('writeHandle', {
+          'handleId': handle.id,
           'data': TransferableTypedData.fromList([chunk]),
           'offset': offset,
         });
@@ -437,7 +510,7 @@ class Smb2Pool {
   /// Stream a file in chunks without loading everything into RAM.
   ///
   /// Keeps a single file handle open for the whole read — one `Create`
-  /// on the wire, then [smb2_pread] (splits into server-negotiated
+  /// on the wire, then `smb2_pread` (splits into server-negotiated
   /// MaxReadSize packets internally), then one `Close`. The handle is
   /// released when the stream completes, errors, or is canceled.
   ///
@@ -470,7 +543,20 @@ class Smb2Pool {
           offset: offset,
           length: toRead,
         );
-        if (chunk.isEmpty) break;
+        // Fix M2: distinguish a legitimate end-of-file from a server
+        // that returned 0 bytes mid-stream (e.g. the file was truncated
+        // by another client between `open` and this `pread`). The old
+        // code silently `break`'d, producing a download shorter than
+        // `size` with no error — callers could not tell success from
+        // truncation. We now surface the truncation as a typed
+        // exception so callers can retry or report.
+        if (chunk.isEmpty) {
+          throw Smb2Exception(
+            'File shrank mid-stream: expected $size bytes, got $offset',
+            null,
+            Smb2ErrorType.io,
+          );
+        }
         offset += chunk.length;
         onProgress?.call(offset, size);
         yield chunk;
@@ -549,7 +635,7 @@ class Smb2Pool {
       size = s;
     }
     try {
-      return await body(Smb2File._(this, handle, size));
+      return await body(Smb2File(this, handle, size));
     } finally {
       await closeHandle(handle);
     }
@@ -606,414 +692,45 @@ class Smb2Pool {
     }
   }
 
+  /// In-flight reconnect futures, keyed on the failing [Worker] that
+  /// triggered the rebuild. Single-flight: concurrent ops that all see
+  /// the same worker fail share one reconnect attempt instead of each
+  /// racing to spawn its own replacement.
+  ///
+  /// Fix H3 from the 0.1.0 code review. Without this, N parallel
+  /// `_sendWithRetry` calls on the same worker would each call
+  /// `Worker.spawn` and `_workers[idx] = newWorker`, leaking N-1
+  /// orphan isolates and leaving the most recent winner pointing at a
+  /// worker that some of the original callers never see.
+  final Map<Worker, Future<Worker>> _reconnectsInFlight = {};
+
   /// Closes [worker], spawns a fresh replacement at the same slot, and returns it.
-  Future<_Worker> _reconnectWorker(_Worker worker) async {
+  ///
+  /// Coalesces concurrent retries on the same dead worker via
+  /// [_reconnectsInFlight] — the first caller starts the work and every
+  /// other caller awaits the same future. Once it settles (success or
+  /// failure) the map entry is removed so a *future* failure on the
+  /// replacement worker can trigger its own reconnect.
+  Future<Worker> _reconnectWorker(Worker worker) {
+    final existing = _reconnectsInFlight[worker];
+    if (existing != null) return existing;
+
+    final future = _doReconnect(worker);
+    _reconnectsInFlight[worker] = future;
+    future.whenComplete(() => _reconnectsInFlight.remove(worker));
+    return future;
+  }
+
+  Future<Worker> _doReconnect(Worker worker) async {
     final idx = _workers.indexOf(worker);
     if (idx < 0) return worker;
     try {
       await worker.close();
     } catch (_) {}
-    final newWorker = await _Worker.spawn(_params);
+    final newWorker = await Worker.spawn(_params);
     _workers[idx] = newWorker;
     return newWorker;
   }
 
   static bool _isConnectionError(Smb2Exception e) => e.isConnectionError;
-}
-
-/// Opaque handle to an open file on a specific worker.
-///
-/// Use with [Smb2Pool.readFromHandle] and [Smb2Pool.closeHandle], or
-/// prefer [Smb2Pool.withFile] / [Smb2Pool.streamFile] /
-/// [Smb2Pool.downloadToFile] which manage the handle lifecycle for you.
-///
-/// If this object is garbage-collected without [Smb2Pool.closeHandle]
-/// being called, a `closeHandle` command is sent to the worker as a
-/// best-effort safety net. Rely on explicit close (or the scoped
-/// helpers) for deterministic cleanup.
-class Smb2PoolHandle {
-  _Worker _worker;
-  int _id;
-  final String _path;
-  bool _closed = false;
-
-  Smb2PoolHandle._(this._worker, this._id, this._path) {
-    _finalizer.attach(this, _HandleRef(_worker, _id), detach: this);
-  }
-
-  /// Re-attach the finalizer after a reconnect swapped [_worker] / [_id].
-  /// Without this, a leaked handle would send `closeHandle` to the dead
-  /// original worker and miss the live handle on the reconnected one.
-  void _refreshFinalizer() {
-    if (_closed) return;
-    _finalizer.detach(this);
-    _finalizer.attach(this, _HandleRef(_worker, _id), detach: this);
-  }
-
-  /// Finalizer that best-effort-closes handles leaked by the caller.
-  /// The callback must not reference the enclosing `Smb2PoolHandle` —
-  /// only the captured worker + id are allowed (otherwise the object
-  /// can never become unreachable).
-  static final Finalizer<_HandleRef> _finalizer = Finalizer<_HandleRef>((ref) {
-    try {
-      final port = ReceivePort();
-      ref.worker._sendPort.send({
-        'cmd': 'closeHandle',
-        'handleId': ref.id,
-        'replyTo': port.sendPort,
-      });
-      // Drain and close the reply port so it doesn't linger; we don't
-      // care about the result since the Dart object is already gone.
-      port.first.then((_) => port.close(), onError: (_) => port.close());
-    } catch (_) {
-      // Worker may be dead; best-effort is all we can promise here.
-    }
-  });
-}
-
-/// A captured {worker, handleId} pair the finalizer can close without
-/// holding a reference to the [Smb2PoolHandle] Dart object.
-class _HandleRef {
-  final _Worker worker;
-  final int id;
-  _HandleRef(this.worker, this.id);
-}
-
-/// A file opened inside [Smb2Pool.withFile].
-///
-/// Lives only for the duration of the callback — the underlying
-/// handle is closed automatically when `withFile` returns.
-class Smb2File {
-  final Smb2Pool _pool;
-  final Smb2PoolHandle _handle;
-
-  /// Total file size in bytes, captured at open time.
-  final int size;
-
-  Smb2File._(this._pool, this._handle, this.size);
-
-  /// Read [length] bytes at [offset]. Same semantics as
-  /// [Smb2Pool.readFromHandle] — transparently reconnects on failure.
-  Future<Uint8List> read({int offset = 0, required int length}) =>
-      _pool.readFromHandle(_handle, offset: offset, length: length);
-}
-
-// ─── Connection params ─────────────────────────────────────────────────────
-
-class _ConnectParams {
-  final String host, share;
-  final String? user, password, domain, libPath;
-  final int timeoutSeconds;
-  final bool seal, signing;
-  final Smb2Version version;
-
-  const _ConnectParams({
-    required this.host,
-    required this.share,
-    this.user,
-    this.password,
-    this.domain,
-    this.timeoutSeconds = 30,
-    this.libPath,
-    this.seal = false,
-    this.signing = false,
-    this.version = Smb2Version.any,
-  });
-}
-
-// ─── Worker isolate ─────────────────────────────────────────────────────────
-
-class _Worker {
-  final SendPort _sendPort;
-  final Isolate _isolate;
-
-  _Worker._(this._sendPort, this._isolate);
-
-  static Future<_Worker> spawn(_ConnectParams p) async {
-    final initPort = ReceivePort();
-    final isolate = await Isolate.spawn(
-      _workerMain,
-      _InitMsg(
-        sendPort: initPort.sendPort,
-        host: p.host,
-        share: p.share,
-        user: p.user,
-        password: p.password,
-        domain: p.domain,
-        timeoutSeconds: p.timeoutSeconds,
-        libPath: p.libPath,
-        seal: p.seal,
-        signing: p.signing,
-        version: p.version,
-      ),
-    );
-
-    final result = await initPort.first;
-    initPort.close();
-
-    if (result is SendPort) {
-      return _Worker._(result, isolate);
-    }
-    throw Smb2Exception('Worker failed to start: $result');
-  }
-
-  Future<T> send<T>(String cmd, Map<String, dynamic> args) async {
-    final replyPort = ReceivePort();
-    try {
-      _sendPort.send({...args, 'cmd': cmd, 'replyTo': replyPort.sendPort});
-      final result = await replyPort.first;
-      if (result is _ErrorMsg) {
-        throw Smb2Exception(
-          result.message,
-          result.errorCode,
-          result.errorTypeIndex != null
-              ? Smb2ErrorType.values[result.errorTypeIndex!]
-              : Smb2ErrorType.unknown,
-        );
-      }
-      // Materialize zero-copy transferred buffers back to Uint8List.
-      if (result is TransferableTypedData) {
-        return result.materialize().asUint8List() as T;
-      }
-      return result as T;
-    } finally {
-      replyPort.close();
-    }
-  }
-
-  Future<void> close() async {
-    final replyPort = ReceivePort();
-    _sendPort.send({'cmd': 'close', 'replyTo': replyPort.sendPort});
-    try {
-      // Give the worker 5 s to finish the current operation and shut down
-      // cleanly. If it is already dead or unresponsive, the timeout fires and
-      // we fall through to the unconditional kill below.
-      await replyPort.first.timeout(const Duration(seconds: 5));
-    } catch (_) {
-      // Worker may be unresponsive or already dead — kill immediately.
-    } finally {
-      replyPort.close();
-    }
-    _isolate.kill(priority: Isolate.immediate);
-  }
-}
-
-// ─── Messages ───────────────────────────────────────────────────────────────
-
-class _InitMsg {
-  final SendPort sendPort;
-  final String host, share;
-  final String? user, password, domain, libPath;
-  final int timeoutSeconds;
-  final bool seal, signing;
-  final Smb2Version version;
-
-  _InitMsg({
-    required this.sendPort,
-    required this.host,
-    required this.share,
-    this.user,
-    this.password,
-    this.domain,
-    this.timeoutSeconds = 30,
-    this.libPath,
-    this.seal = false,
-    this.signing = false,
-    this.version = Smb2Version.any,
-  });
-}
-
-class _ErrorMsg {
-  final String message;
-  final int? errorCode;
-  final int? errorTypeIndex;
-  _ErrorMsg(this.message, [this.errorCode, this.errorTypeIndex]);
-}
-
-// ─── Isolate entry point ────────────────────────────────────────────────────
-
-void _workerMain(_InitMsg init) {
-  final client = init.libPath != null
-      ? Smb2Client.open(init.libPath)
-      : Smb2Client.open();
-
-  try {
-    client.connect(
-      host: init.host,
-      share: init.share,
-      user: init.user,
-      password: init.password,
-      domain: init.domain,
-      timeoutSeconds: init.timeoutSeconds,
-      seal: init.seal,
-      signing: init.signing,
-      version: init.version,
-    );
-  } catch (e) {
-    init.sendPort.send(e.toString());
-    return;
-  }
-
-  final cmdPort = ReceivePort();
-  init.sendPort.send(cmdPort.sendPort);
-
-  // Handle ID → native pointer map for file handles
-  final handles = <int, dynamic>{};
-  int nextHandleId = 0;
-
-  cmdPort.listen((msg) {
-    if (msg is! Map) return;
-    final cmd = msg['cmd'] as String;
-    final replyTo = msg['replyTo'] as SendPort?;
-
-    try {
-      switch (cmd) {
-        case 'listDir':
-          replyTo?.send(client.listDirectory(msg['path'] as String));
-        case 'listShares':
-          replyTo?.send(client.listShares(
-            host: msg['host'] as String,
-            user: msg['user'] as String?,
-            password: msg['password'] as String?,
-            domain: msg['domain'] as String?,
-          ));
-        case 'readRange':
-          final rangeData = client.readFileRange(
-            msg['path'] as String,
-            offset: msg['offset'] as int? ?? 0,
-            length: msg['length'] as int,
-          );
-          replyTo?.send(TransferableTypedData.fromList([rangeData]));
-        case 'readFile':
-          final fileData = client.readFile(msg['path'] as String);
-          replyTo?.send(TransferableTypedData.fromList([fileData]));
-        case 'stat':
-          replyTo?.send(client.stat(msg['path'] as String));
-        case 'fileSize':
-          replyTo?.send(client.fileSize(msg['path'] as String));
-
-        case 'echo':
-          client.echo();
-          replyTo?.send(true);
-        case 'statvfs':
-          replyTo?.send(client.statvfs(msg['path'] as String));
-        case 'readlink':
-          replyTo?.send(client.readlink(msg['path'] as String));
-        case 'fsync':
-          final fhSync = handles[msg['handleId'] as int];
-          if (fhSync == null) {
-            replyTo?.send(_ErrorMsg('Invalid handle'));
-            return;
-          }
-          client.fsync(fhSync);
-          replyTo?.send(true);
-        case 'ftruncate':
-          final fhTrunc = handles[msg['handleId'] as int];
-          if (fhTrunc == null) {
-            replyTo?.send(_ErrorMsg('Invalid handle'));
-            return;
-          }
-          client.ftruncate(fhTrunc, msg['length'] as int);
-          replyTo?.send(true);
-
-        // ── Write commands ────────────────────────────────────────────
-        case 'writeRange':
-          final writeRangeData = (msg['data'] as TransferableTypedData)
-              .materialize().asUint8List();
-          client.writeFileRange(
-            msg['path'] as String,
-            writeRangeData,
-            offset: msg['offset'] as int? ?? 0,
-          );
-          replyTo?.send(true);
-        case 'writeFile':
-          final writeFileData = (msg['data'] as TransferableTypedData)
-              .materialize().asUint8List();
-          client.writeFile(msg['path'] as String, writeFileData);
-          replyTo?.send(true);
-        case 'deleteFile':
-          client.deleteFile(msg['path'] as String);
-          replyTo?.send(true);
-        case 'mkdir':
-          client.mkdir(msg['path'] as String);
-          replyTo?.send(true);
-        case 'rmdir':
-          client.rmdir(msg['path'] as String);
-          replyTo?.send(true);
-        case 'rename':
-          client.rename(
-            msg['oldPath'] as String,
-            msg['newPath'] as String,
-          );
-          replyTo?.send(true);
-        case 'truncate':
-          client.truncate(msg['path'] as String, msg['length'] as int);
-          replyTo?.send(true);
-
-        // ── File handle commands ──────────────────────────────────────
-        case 'openFile':
-          final fh = client.openFileHandle(msg['path'] as String);
-          final id = nextHandleId++;
-          handles[id] = fh;
-          replyTo?.send(id);
-        case 'openFileWithSize':
-          final (fh, size) = client.openFileWithSize(msg['path'] as String);
-          final id = nextHandleId++;
-          handles[id] = fh;
-          replyTo?.send([id, size]);
-        case 'readHandle':
-          final fh = handles[msg['handleId'] as int];
-          if (fh == null) {
-            replyTo?.send(_ErrorMsg('Invalid handle'));
-            return;
-          }
-          final handleData = client.readHandle(
-            fh,
-            offset: msg['offset'] as int? ?? 0,
-            length: msg['length'] as int,
-          );
-          replyTo?.send(TransferableTypedData.fromList([handleData]));
-        case 'openFileWrite':
-          final fh = client.openFileHandleWrite(msg['path'] as String);
-          final id = nextHandleId++;
-          handles[id] = fh;
-          replyTo?.send(id);
-        case 'writeHandle':
-          final fh = handles[msg['handleId'] as int];
-          if (fh == null) {
-            replyTo?.send(_ErrorMsg('Invalid handle'));
-            return;
-          }
-          final writeHandleData = (msg['data'] as TransferableTypedData)
-              .materialize().asUint8List();
-          client.writeHandle(
-            fh,
-            writeHandleData,
-            offset: msg['offset'] as int? ?? 0,
-          );
-          replyTo?.send(true);
-        case 'closeHandle':
-          final id = msg['handleId'] as int;
-          final fh = handles.remove(id);
-          if (fh != null) client.closeHandle(fh);
-          replyTo?.send(true);
-
-        case 'close':
-          // Close all open handles before disconnecting
-          for (final fh in handles.values) {
-            try { client.closeHandle(fh); } catch (_) {}
-          }
-          handles.clear();
-          client.disconnect();
-          replyTo?.send(true);
-          cmdPort.close();
-      }
-    } catch (e) {
-      if (e is Smb2Exception) {
-        replyTo?.send(_ErrorMsg(e.message, e.errorCode, e.type.index));
-      } else {
-        replyTo?.send(_ErrorMsg(e.toString()));
-      }
-    }
-  });
 }

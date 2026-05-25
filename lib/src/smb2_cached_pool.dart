@@ -6,9 +6,11 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
+
+import 'pool/pool.dart';
 import 'smb2_error_type.dart';
 import 'smb2_exceptions.dart';
-import 'smb2_pool.dart';
 import 'smb2_types.dart';
 
 /// A simple cache entry holding a value and its insertion timestamp.
@@ -135,11 +137,24 @@ class CachedSmb2Pool {
   }
 
   /// Invalidate the parent directory's listing cache.
+  ///
+  /// Matches both `/` and `\` so callers that hand us SMB-style backslash
+  /// paths still invalidate the parent listing correctly (fix L2 in the
+  /// 0.1.0 code review).
   void _invalidateParent(String path) {
-    final sep = path.lastIndexOf('/');
+    final sep = path.lastIndexOf(_pathSeparators);
     final parent = sep > 0 ? path.substring(0, sep) : '';
     _dirCache.remove(parent);
   }
+
+  static final RegExp _pathSeparators = RegExp(r'[/\\]');
+
+  /// Test-only handle on the private path-invalidation logic. Lets unit
+  /// tests assert that mutations on `folder/file` (or `folder\file`)
+  /// clear the parent listing cache for `folder` — without spinning up
+  /// the full integration stack.
+  @visibleForTesting
+  void debugInvalidatePath(String path) => _invalidatePath(path);
 
   // ─── Write operations (invalidate cache) ─────────────────────────────
 

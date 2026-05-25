@@ -9,12 +9,24 @@
 /// The credentials come from `test/integration/.bootstrap-cache.json`
 /// written by `bootstrap.dart`, so we don't re-stand-up the Samba container
 /// for every test.
+///
+/// The bootstrap cache also carries a `libPath` pointing at the prebuilt
+/// libsmb2 binary on this dev machine. The fixture wires it into the
+/// package's internal [debugLibSmb2PathOverride] in `setUpAll`, so the
+/// public API can stay path-free (`Smb2Client.open()`,
+/// `Smb2Pool.connect(...)`) while the tests still target the exact
+/// `.dylib` / `.so` checkout the bootstrap container was provisioned
+/// against.
 library;
 
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:dart_smb2/dart_smb2.dart';
+// ignore: implementation_imports — fixture needs the package-internal
+// debugLibSmb2PathOverride to point Smb2Client/Smb2Pool at the test
+// libsmb2 binary without leaking that knob to consumers.
+import 'package:dart_smb2/src/ffi/native_lib.dart';
 
 const String _cacheFile = 'test/integration/.bootstrap-cache.json';
 
@@ -64,12 +76,20 @@ class Smb2BootstrapCache {
   }
 }
 
+/// Idempotently point the package at the test libsmb2 binary recorded in
+/// the bootstrap cache. Safe to call from every `setUpAll` — it just
+/// overwrites the same path each time.
+void installTestLibPath() {
+  debugLibSmb2PathOverride = Smb2BootstrapCache.load().libPath;
+}
+
 /// Build a connected [Smb2Pool] from the bootstrap cache.
 ///
 /// When the cache is missing, throws — but `setUpAll` guarded by the outer
 /// `group(skip: bootstrapSkipReason)` should never run, so this is only a
 /// belt-and-braces safeguard for direct invocations.
 Future<Smb2Pool> poolFromCache({int workers = 2}) {
+  installTestLibPath();
   final cache = Smb2BootstrapCache.load();
   return Smb2Pool.connect(
     host: cache.host,
@@ -77,15 +97,14 @@ Future<Smb2Pool> poolFromCache({int workers = 2}) {
     user: cache.user,
     password: cache.password,
     workers: workers,
-    libPath: cache.libPath,
   );
 }
 
 /// Build a synchronous [Smb2Client] from the bootstrap cache. Used by the
 /// `smb2_client_test.dart` suite that exercises the low-level sync API.
 Smb2Client clientFromCache() {
-  final cache = Smb2BootstrapCache.load();
-  return Smb2Client.open(cache.libPath);
+  installTestLibPath();
+  return Smb2Client.open();
 }
 
 /// The cache exposed for tests that need to read specific fields (e.g. the

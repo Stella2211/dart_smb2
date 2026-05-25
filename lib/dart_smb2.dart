@@ -13,9 +13,9 @@
 ///   and `listDirectory`.
 library;
 
+export 'src/pool/pool.dart';
 export 'src/smb2_cached_pool.dart';
 export 'src/smb2_client.dart';
 export 'src/smb2_error_type.dart';
 export 'src/smb2_exceptions.dart';
-export 'src/smb2_pool.dart';
 export 'src/smb2_types.dart';

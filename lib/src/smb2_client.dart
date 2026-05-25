@@ -3,310 +3,51 @@
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
 import 'dart:ffi';
-import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:ffi/ffi.dart';
-
+import 'ffi/libsmb2_bindings.dart';
+import 'ffi/native_lib.dart';
+import 'native/smb2_native.dart';
 import 'smb2_error_type.dart';
 import 'smb2_exceptions.dart';
 import 'smb2_types.dart';
 
-typedef _GetErrnoC = Int32 Function(Pointer ctx);
-typedef _GetErrnoDart = int Function(Pointer ctx);
-
-// ─── Native function signatures ─────────────────────────────────────────────
-
-typedef _ConnectC = Pointer Function(
-  Pointer<Utf8> host, Pointer<Utf8> share, Pointer<Utf8> user,
-  Pointer<Utf8> password, Pointer<Utf8> domain, Int32 timeout,
-  Int32 seal, Int32 signing, Int32 version,
-);
-typedef _ConnectDart = Pointer Function(
-  Pointer<Utf8> host, Pointer<Utf8> share, Pointer<Utf8> user,
-  Pointer<Utf8> password, Pointer<Utf8> domain, int timeout,
-  int seal, int signing, int version,
-);
-
-typedef _VoidPtrC = Void Function(Pointer ctx);
-typedef _VoidPtrDart = void Function(Pointer ctx);
-
-typedef _ErrorC = Pointer<Utf8> Function(Pointer ctx);
-typedef _ErrorDart = Pointer<Utf8> Function(Pointer ctx);
-
-typedef _LastErrorC = Pointer<Utf8> Function();
-typedef _LastErrorDart = Pointer<Utf8> Function();
-
-typedef _ListdirC = Pointer Function(Pointer ctx, Pointer<Utf8> path);
-typedef _ListdirDart = Pointer Function(Pointer ctx, Pointer<Utf8> path);
-
-typedef _PreadC = Int32 Function(
-  Pointer ctx, Pointer<Utf8> path, Pointer<Uint8> buf,
-  Uint32 length, Uint64 offset,
-);
-typedef _PreadDart = int Function(
-  Pointer ctx, Pointer<Utf8> path, Pointer<Uint8> buf,
-  int length, int offset,
-);
-
-typedef _ReadFileC = Pointer<Uint8> Function(
-  Pointer ctx, Pointer<Utf8> path, Pointer<Int64> outSize,
-);
-typedef _ReadFileDart = Pointer<Uint8> Function(
-  Pointer ctx, Pointer<Utf8> path, Pointer<Int64> outSize,
-);
-
-typedef _StatC = Int32 Function(
-  Pointer ctx, Pointer<Utf8> path,
-  Pointer<Uint32> outType, Pointer<Uint64> outSize,
-  Pointer<Uint64> outMtime, Pointer<Uint64> outBtime,
-);
-typedef _StatDart = int Function(
-  Pointer ctx, Pointer<Utf8> path,
-  Pointer<Uint32> outType, Pointer<Uint64> outSize,
-  Pointer<Uint64> outMtime, Pointer<Uint64> outBtime,
-);
-
-typedef _FilesizeC = Int64 Function(Pointer ctx, Pointer<Utf8> path);
-typedef _FilesizeDart = int Function(Pointer ctx, Pointer<Utf8> path);
-
-// ─── File handle functions ──────────────────────────────────────────────────
-
-typedef _OpenFileC = Pointer Function(Pointer ctx, Pointer<Utf8> path);
-typedef _OpenFileDart = Pointer Function(Pointer ctx, Pointer<Utf8> path);
-
-typedef _OpenFileWithSizeC = Pointer Function(
-  Pointer ctx, Pointer<Utf8> path, Pointer<Int64> outSize,
-);
-typedef _OpenFileWithSizeDart = Pointer Function(
-  Pointer ctx, Pointer<Utf8> path, Pointer<Int64> outSize,
-);
-
-typedef _PreadHandleC = Int32 Function(
-  Pointer ctx, Pointer fh, Pointer<Uint8> buf,
-  Uint32 length, Uint64 offset,
-);
-typedef _PreadHandleDart = int Function(
-  Pointer ctx, Pointer fh, Pointer<Uint8> buf,
-  int length, int offset,
-);
-
-typedef _CloseFileC = Void Function(Pointer ctx, Pointer fh);
-typedef _CloseFileDart = void Function(Pointer ctx, Pointer fh);
-
-typedef _ListSharesC = Pointer Function(
-  Pointer<Utf8> host, Pointer<Utf8> user, Pointer<Utf8> password,
-  Pointer<Utf8> domain, Int32 timeout,
-);
-typedef _ListSharesDart = Pointer Function(
-  Pointer<Utf8> host, Pointer<Utf8> user, Pointer<Utf8> password,
-  Pointer<Utf8> domain, int timeout,
-);
-
-typedef _SharelistFreeC = Void Function(Pointer list);
-typedef _SharelistFreeDart = void Function(Pointer list);
-
-// ─── Write function signatures ─────────────────────────────────────────────
-
-typedef _PwriteC = Int32 Function(
-  Pointer ctx, Pointer<Utf8> path, Pointer<Uint8> buf,
-  Uint32 length, Uint64 offset,
-);
-typedef _PwriteDart = int Function(
-  Pointer ctx, Pointer<Utf8> path, Pointer<Uint8> buf,
-  int length, int offset,
-);
-
-typedef _WriteFileC = Int32 Function(
-  Pointer ctx, Pointer<Utf8> path, Pointer<Uint8> buf, Uint32 length,
-);
-typedef _WriteFileDart = int Function(
-  Pointer ctx, Pointer<Utf8> path, Pointer<Uint8> buf, int length,
-);
-
-typedef _PwriteHandleC = Int32 Function(
-  Pointer ctx, Pointer fh, Pointer<Uint8> buf,
-  Uint32 length, Uint64 offset,
-);
-typedef _PwriteHandleDart = int Function(
-  Pointer ctx, Pointer fh, Pointer<Uint8> buf,
-  int length, int offset,
-);
-
-typedef _SimplePathC = Int32 Function(Pointer ctx, Pointer<Utf8> path);
-typedef _SimplePathDart = int Function(Pointer ctx, Pointer<Utf8> path);
-
-typedef _RenameC = Int32 Function(
-  Pointer ctx, Pointer<Utf8> oldpath, Pointer<Utf8> newpath,
-);
-typedef _RenameDart = int Function(
-  Pointer ctx, Pointer<Utf8> oldpath, Pointer<Utf8> newpath,
-);
-
-typedef _TruncateC = Int32 Function(
-  Pointer ctx, Pointer<Utf8> path, Uint64 length,
-);
-typedef _TruncateDart = int Function(
-  Pointer ctx, Pointer<Utf8> path, int length,
-);
-
-// ─── Additional function signatures ────────────────────────────────────────
-
-typedef _FtruncateC = Int32 Function(Pointer ctx, Pointer fh, Uint64 length);
-typedef _FtruncateDart = int Function(Pointer ctx, Pointer fh, int length);
-
-typedef _HandleC = Int32 Function(Pointer ctx, Pointer fh);
-typedef _HandleDart = int Function(Pointer ctx, Pointer fh);
-
-typedef _CtxOnlyC = Int32 Function(Pointer ctx);
-typedef _CtxOnlyDart = int Function(Pointer ctx);
-
-typedef _ReadlinkC = Int32 Function(
-  Pointer ctx, Pointer<Utf8> path, Pointer<Utf8> buf, Uint32 bufsiz,
-);
-typedef _ReadlinkDart = int Function(
-  Pointer ctx, Pointer<Utf8> path, Pointer<Utf8> buf, int bufsiz,
-);
-
-typedef _StatvfsC = Int32 Function(
-  Pointer ctx, Pointer<Utf8> path, Pointer out,
-);
-typedef _StatvfsDart = int Function(
-  Pointer ctx, Pointer<Utf8> path, Pointer out,
-);
-
-// ─── Entry struct layout ────────────────────────────────────────────────────
-// smb2w_entry: char[256] + uint32 type + pad(4) + uint64 size/mtime/btime
-const _entrySize = 288;
-const _entryTypeOffset = 256;
-const _entrySizeOffset = 264;
-const _entryMtimeOffset = 272;
-const _entryBtimeOffset = 280;
-
-// smb2w_share_entry: char[256] + uint32 type = 260 bytes
-const _shareEntrySize = 260;
-const _shareEntryTypeOffset = 256;
-
-/// Wrap a native [malloc]'d buffer into a Dart [Uint8List] **without copying**.
-///
-/// The returned list owns the native memory — it will be freed automatically
-/// when the Dart object is garbage-collected via [NativeFinalizer].
-Uint8List _ownedTypedList(Pointer<Uint8> buf, int length) {
-  return buf.asTypedList(length, finalizer: malloc.nativeFree);
-}
-
-/// SMB2/3 client powered by libsmb2 via a C wrapper and Dart FFI.
+/// SMB2/3 client powered by libsmb2 via Dart FFI.
 ///
 /// All operations are **synchronous** — run this client inside a
 /// [Dart Isolate](https://api.dart.dev/stable/dart-isolate/Isolate-class.html)
 /// to keep the UI responsive.
 ///
 /// ```dart
-/// final client = Smb2Client.open('/path/to/libsmb2.dylib');
+/// final client = Smb2Client.open();
 /// client.connect(host: '192.168.1.1', share: 'Music', user: 'guest');
 /// final entries = client.listDirectory('');
 /// client.disconnect();
 /// ```
 class Smb2Client implements Finalizable {
   final DynamicLibrary _lib;
-  Pointer _ctx = nullptr;
+  final LibSmb2Bindings _native;
+  Pointer<smb2_context> _ctx = nullptr;
+  Smb2Native? _ops;
   late final NativeFinalizer _finalizer;
 
-  late final _ConnectDart _connect;
-  late final _VoidPtrDart _disconnect;
-  late final _GetErrnoDart _getErrno;
-  late final _ErrorDart _error;
-  late final _LastErrorDart _lastError;
-  late final _ListdirDart _listdir;
-  late final _VoidPtrDart _dirlistFree;
-  late final _VoidPtrDart _free;
-  late final _PreadDart _pread;
-  late final _ReadFileDart _readFile;
-  late final _StatDart _stat;
-  late final _FilesizeDart _filesize;
-  late final _OpenFileDart _openFile;
-  late final _OpenFileWithSizeDart _openFileWithSize;
-  late final _PreadHandleDart _preadHandle;
-  late final _CloseFileDart _closeFile;
-  late final _ListSharesDart _listShares;
-  late final _SharelistFreeDart _sharelistFree;
-  late final _PwriteDart _pwrite;
-  late final _WriteFileDart _writeFile;
-  late final _OpenFileDart _openFileWrite;
-  late final _PwriteHandleDart _pwriteHandle;
-  late final _SimplePathDart _unlink;
-  late final _SimplePathDart _mkdir;
-  late final _SimplePathDart _rmdir;
-  late final _RenameDart _rename;
-  late final _TruncateDart _truncate;
-  late final _FtruncateDart _ftruncate;
-  late final _HandleDart _fsync;
-  late final _CtxOnlyDart _echo;
-  late final _ReadlinkDart _readlink;
-  late final _StatvfsDart _statvfs;
-
-  Smb2Client._(this._lib) {
-    _connect = _lib.lookupFunction<_ConnectC, _ConnectDart>('smb2w_connect');
-    _disconnect = _lib.lookupFunction<_VoidPtrC, _VoidPtrDart>('smb2w_disconnect');
-    _getErrno = _lib.lookupFunction<_GetErrnoC, _GetErrnoDart>('smb2w_get_errno');
+  Smb2Client._(this._lib) : _native = LibSmb2Bindings(_lib) {
+    // Last-resort safety net for a leaked client: free the libsmb2
+    // context if the caller forgets to call `disconnect()`. The bound
+    // function is `smb2_destroy_context` (signature: void(void*)) — it
+    // closes the socket and releases internal allocations, but does NOT
+    // send a wire-level logoff first. Explicit `disconnect()` is still
+    // preferred so the server can reclaim the session immediately.
     _finalizer = NativeFinalizer(
-      _lib.lookup<NativeFunction<_VoidPtrC>>('smb2w_disconnect'),
+      _lib.lookup<NativeFunction<Void Function(Pointer)>>(
+        'smb2_destroy_context',
+      ),
     );
-    _error = _lib.lookupFunction<_ErrorC, _ErrorDart>('smb2w_error');
-    _lastError = _lib.lookupFunction<_LastErrorC, _LastErrorDart>('smb2w_get_last_error');
-    _listdir = _lib.lookupFunction<_ListdirC, _ListdirDart>('smb2w_listdir');
-    _dirlistFree = _lib.lookupFunction<_VoidPtrC, _VoidPtrDart>('smb2w_dirlist_free');
-    _free = _lib.lookupFunction<_VoidPtrC, _VoidPtrDart>('smb2w_free');
-    _pread = _lib.lookupFunction<_PreadC, _PreadDart>('smb2w_pread');
-    _readFile = _lib.lookupFunction<_ReadFileC, _ReadFileDart>('smb2w_read_file');
-    _stat = _lib.lookupFunction<_StatC, _StatDart>('smb2w_stat');
-    _filesize = _lib.lookupFunction<_FilesizeC, _FilesizeDart>('smb2w_filesize');
-    _openFile = _lib.lookupFunction<_OpenFileC, _OpenFileDart>('smb2w_open_file');
-    _openFileWithSize = _lib.lookupFunction<_OpenFileWithSizeC, _OpenFileWithSizeDart>('smb2w_open_file_with_size');
-    _preadHandle = _lib.lookupFunction<_PreadHandleC, _PreadHandleDart>('smb2w_pread_handle');
-    _closeFile = _lib.lookupFunction<_CloseFileC, _CloseFileDart>('smb2w_close_file');
-    _listShares = _lib.lookupFunction<_ListSharesC, _ListSharesDart>('smb2w_list_shares');
-    _sharelistFree = _lib.lookupFunction<_SharelistFreeC, _SharelistFreeDart>('smb2w_sharelist_free');
-    _pwrite = _lib.lookupFunction<_PwriteC, _PwriteDart>('smb2w_pwrite');
-    _writeFile = _lib.lookupFunction<_WriteFileC, _WriteFileDart>('smb2w_write_file');
-    _openFileWrite = _lib.lookupFunction<_OpenFileC, _OpenFileDart>('smb2w_open_file_write');
-    _pwriteHandle = _lib.lookupFunction<_PwriteHandleC, _PwriteHandleDart>('smb2w_pwrite_handle');
-    _unlink = _lib.lookupFunction<_SimplePathC, _SimplePathDart>('smb2w_unlink');
-    _mkdir = _lib.lookupFunction<_SimplePathC, _SimplePathDart>('smb2w_mkdir');
-    _rmdir = _lib.lookupFunction<_SimplePathC, _SimplePathDart>('smb2w_rmdir');
-    _rename = _lib.lookupFunction<_RenameC, _RenameDart>('smb2w_rename');
-    _truncate = _lib.lookupFunction<_TruncateC, _TruncateDart>('smb2w_truncate');
-    _ftruncate = _lib.lookupFunction<_FtruncateC, _FtruncateDart>('smb2w_ftruncate');
-    _fsync = _lib.lookupFunction<_HandleC, _HandleDart>('smb2w_fsync');
-    _echo = _lib.lookupFunction<_CtxOnlyC, _CtxOnlyDart>('smb2w_echo');
-    _readlink = _lib.lookupFunction<_ReadlinkC, _ReadlinkDart>('smb2w_readlink');
-    _statvfs = _lib.lookupFunction<_StatvfsC, _StatvfsDart>('smb2w_statvfs');
   }
 
-  /// Create a client, loading the native library automatically.
-  ///
-  /// The library is resolved using Flutter's FFI plugin mechanism.
-  /// You can also pass a custom [path] to load from a specific location.
-  factory Smb2Client.open([String? path]) {
-    final lib = path != null
-        ? DynamicLibrary.open(path)
-        : _openDefault();
-    return Smb2Client._(lib);
-  }
-
-  /// Create a client from an already-loaded [DynamicLibrary].
-  factory Smb2Client(DynamicLibrary lib) => Smb2Client._(lib);
-
-  static DynamicLibrary _openDefault() {
-    if (Platform.isMacOS || Platform.isIOS) {
-      return DynamicLibrary.open('libsmb2.framework/libsmb2');
-    } else if (Platform.isAndroid || Platform.isLinux) {
-      return DynamicLibrary.open('libsmb2.so');
-    } else if (Platform.isWindows) {
-      return DynamicLibrary.open('libsmb2.dll');
-    }
-    throw const Smb2Exception('Unsupported platform');
-  }
+  /// Create a client. The native library is resolved automatically via
+  /// the Flutter plugin mechanism — no path arguments to wire up.
+  factory Smb2Client.open() => Smb2Client._(openLibSmb2());
 
   /// Whether this client is connected to a share.
   bool get isConnected => _ctx != nullptr;
@@ -325,39 +66,15 @@ class Smb2Client implements Finalizable {
     String? password,
     String? domain,
     int timeoutSeconds = 30,
-  }) {
-    final pHost = host.toNativeUtf8();
-    final pUser = (user ?? '').toNativeUtf8();
-    final pPass = (password ?? '').toNativeUtf8();
-    final pDomain = (domain ?? '').toNativeUtf8();
-
-    final sharelist = _listShares(pHost, pUser, pPass, pDomain, timeoutSeconds);
-
-    malloc.free(pHost);
-    malloc.free(pUser);
-    malloc.free(pPass);
-    malloc.free(pDomain);
-
-    if (sharelist == nullptr) {
-      throw _makeLastError('Failed to list shares');
-    }
-
-    try {
-      final entriesPtr = sharelist.cast<Pointer>().value;
-      final count = Pointer<Int32>.fromAddress(sharelist.address + 8).value;
-
-      final results = <Smb2ShareInfo>[];
-      for (var i = 0; i < count; i++) {
-        final addr = entriesPtr.address + i * _shareEntrySize;
-        final name = Pointer<Utf8>.fromAddress(addr).toDartString();
-        final type = Pointer<Uint32>.fromAddress(addr + _shareEntryTypeOffset).value;
-        results.add(Smb2ShareInfo(name: name, type: type));
-      }
-      return results;
-    } finally {
-      _sharelistFree(sharelist);
-    }
-  }
+  }) =>
+      Smb2Native.listShares(
+        _native,
+        host: host,
+        user: user,
+        password: password,
+        domain: domain,
+        timeoutSeconds: timeoutSeconds,
+      );
 
   // ─── Connection ─────────────────────────────────────────────────────────
 
@@ -380,27 +97,19 @@ class Smb2Client implements Finalizable {
   }) {
     if (isConnected) disconnect();
 
-    final pHost = host.toNativeUtf8();
-    final pShare = share.toNativeUtf8();
-    final pUser = (user ?? '').toNativeUtf8();
-    final pPass = (password ?? '').toNativeUtf8();
-    final pDomain = (domain ?? '').toNativeUtf8();
-
-    _ctx = _connect(
-      pHost, pShare, pUser, pPass, pDomain, timeoutSeconds,
-      seal ? 1 : 0, signing ? 1 : 0, version.value,
+    _ctx = Smb2Native.connect(
+      _native,
+      host: host,
+      share: share,
+      user: user,
+      password: password,
+      domain: domain,
+      timeoutSeconds: timeoutSeconds,
+      seal: seal,
+      signing: signing,
+      version: version,
     );
-
-    malloc.free(pHost);
-    malloc.free(pShare);
-    malloc.free(pUser);
-    malloc.free(pPass);
-    malloc.free(pDomain);
-
-    if (_ctx == nullptr) {
-      final msg = _lastError().toDartString();
-      throw Smb2Exception(msg, null, Smb2ErrorType.fromMessage(msg));
-    }
+    _ops = Smb2Native(_native, _ctx);
     _finalizer.attach(this, _ctx.cast(), detach: this);
   }
 
@@ -408,8 +117,9 @@ class Smb2Client implements Finalizable {
   void disconnect() {
     if (_ctx == nullptr) return;
     _finalizer.detach(this);
-    _disconnect(_ctx);
+    Smb2Native.disconnectContext(_native, _ctx);
     _ctx = nullptr;
+    _ops = null;
   }
 
   /// Send a keepalive echo to the server.
@@ -419,10 +129,7 @@ class Smb2Client implements Finalizable {
   /// connection has been lost.
   void echo() {
     _ensureConnected();
-    final rc = _echo(_ctx);
-    if (rc < 0) {
-      throw _makeError('Echo failed');
-    }
+    _ops!.echo();
   }
 
   // ─── Directory listing ──────────────────────────────────────────────────
@@ -436,42 +143,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] if the directory cannot be opened.
   List<Smb2DirEntry> listDirectory(String path) {
     _ensureConnected();
-
-    final pPath = path.toNativeUtf8();
-    final dirlist = _listdir(_ctx, pPath);
-    malloc.free(pPath);
-
-    if (dirlist == nullptr) {
-      throw _makeError('Failed to list directory');
-    }
-
-    try {
-      final entriesPtr = dirlist.cast<Pointer>().value;
-      final count = Pointer<Int32>.fromAddress(dirlist.address + 8).value;
-
-      final results = <Smb2DirEntry>[];
-      for (var i = 0; i < count; i++) {
-        final addr = entriesPtr.address + i * _entrySize;
-        final name = Pointer<Utf8>.fromAddress(addr).toDartString();
-        final type = Pointer<Uint32>.fromAddress(addr + _entryTypeOffset).value;
-        final size = Pointer<Uint64>.fromAddress(addr + _entrySizeOffset).value;
-        final mtime = Pointer<Uint64>.fromAddress(addr + _entryMtimeOffset).value;
-        final btime = Pointer<Uint64>.fromAddress(addr + _entryBtimeOffset).value;
-
-        results.add(Smb2DirEntry(
-          name: name,
-          stat: Smb2Stat(
-            type: _parseType(type),
-            size: size,
-            modified: DateTime.fromMillisecondsSinceEpoch(mtime * 1000),
-            created: DateTime.fromMillisecondsSinceEpoch(btime * 1000),
-          ),
-        ));
-      }
-      return results;
-    } finally {
-      _dirlistFree(dirlist);
-    }
+    return _ops!.listDirectory(path);
   }
 
   // ─── File reading ───────────────────────────────────────────────────────
@@ -483,21 +155,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on read failure.
   Uint8List readFileRange(String path, {int offset = 0, required int length}) {
     _ensureConnected();
-
-    final pPath = path.toNativeUtf8();
-    final buf = malloc<Uint8>(length);
-
-    final n = _pread(_ctx, pPath, buf, length, offset);
-
-    malloc.free(pPath);
-
-    if (n < 0) {
-      malloc.free(buf);
-      throw _makeError('Read failed');
-    }
-
-    // Zero-copy: Dart GC owns the native buffer via NativeFinalizer.
-    return _ownedTypedList(buf, n);
+    return _ops!.readFileRange(path, offset: offset, length: length);
   }
 
   /// Read an entire file into memory.
@@ -508,31 +166,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on failure.
   Uint8List readFile(String path) {
     _ensureConnected();
-
-    final pPath = path.toNativeUtf8();
-    final pSize = calloc<Int64>();
-
-    final buf = _readFile(_ctx, pPath, pSize);
-    malloc.free(pPath);
-
-    if (buf == nullptr) {
-      calloc.free(pSize);
-      throw _makeError('Read file failed');
-    }
-
-    final size = pSize.value;
-    calloc.free(pSize);
-
-    // The buffer was malloc'd by the C wrapper (msvcrt on Windows).
-    // Do NOT transfer ownership to Dart GC using malloc.nativeFree!
-    // Instead, copy to a Dart Uint8List and free the native buffer immediately.
-    try {
-      final dartList = Uint8List(size);
-      dartList.setAll(0, buf.asTypedList(size));
-      return dartList;
-    } finally {
-      _free(buf);
-    }
+    return _ops!.readFile(path);
   }
 
   // ─── File info ──────────────────────────────────────────────────────────
@@ -545,33 +179,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on failure.
   Smb2Stat stat(String path) {
     _ensureConnected();
-
-    final pPath = path.toNativeUtf8();
-    final pType = calloc<Uint32>();
-    final pSize = calloc<Uint64>();
-    final pMtime = calloc<Uint64>();
-    final pBtime = calloc<Uint64>();
-
-    final rc = _stat(_ctx, pPath, pType, pSize, pMtime, pBtime);
-
-    malloc.free(pPath);
-
-    if (rc < 0) {
-      calloc.free(pType); calloc.free(pSize);
-      calloc.free(pMtime); calloc.free(pBtime);
-      throw _makeError('Stat failed');
-    }
-
-    final result = Smb2Stat(
-      type: _parseType(pType.value),
-      size: pSize.value,
-      modified: DateTime.fromMillisecondsSinceEpoch(pMtime.value * 1000),
-      created: DateTime.fromMillisecondsSinceEpoch(pBtime.value * 1000),
-    );
-
-    calloc.free(pType); calloc.free(pSize);
-    calloc.free(pMtime); calloc.free(pBtime);
-    return result;
+    return _ops!.stat(path);
   }
 
   /// Get the size of a file in bytes without opening it.
@@ -579,15 +187,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on failure.
   int fileSize(String path) {
     _ensureConnected();
-
-    final pPath = path.toNativeUtf8();
-    final size = _filesize(_ctx, pPath);
-    malloc.free(pPath);
-
-    if (size < 0) {
-      throw _makeError('File size failed');
-    }
-    return size;
+    return _ops!.fileSize(path);
   }
 
   /// Get filesystem statistics (total/free space, block sizes).
@@ -597,35 +197,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on failure.
   Smb2StatVfs statvfs(String path) {
     _ensureConnected();
-
-    // smb2w_statvfs struct layout:
-    // uint32 f_bsize(0) + uint32 f_frsize(4) +
-    // uint64 f_blocks(8) + uint64 f_bfree(16) + uint64 f_bavail(24) +
-    // uint32 f_files(32) + uint32 f_ffree(36) + uint32 f_favail(40) +
-    // uint32 f_fsid(44) + uint32 f_flag(48) + uint32 f_namemax(52)
-    // Total: 56 bytes
-    final pPath = path.toNativeUtf8();
-    final buf = calloc<Uint8>(56);
-
-    final rc = _statvfs(_ctx, pPath, buf.cast());
-    malloc.free(pPath);
-
-    if (rc < 0) {
-      calloc.free(buf);
-      throw _makeError('Statvfs failed');
-    }
-
-    final addr = buf.address;
-    final result = Smb2StatVfs(
-      blockSize: Pointer<Uint32>.fromAddress(addr).value,
-      fragmentSize: Pointer<Uint32>.fromAddress(addr + 4).value,
-      totalBlocks: Pointer<Uint64>.fromAddress(addr + 8).value,
-      freeBlocks: Pointer<Uint64>.fromAddress(addr + 16).value,
-      availableBlocks: Pointer<Uint64>.fromAddress(addr + 24).value,
-      maxNameLength: Pointer<Uint32>.fromAddress(addr + 52).value,
-    );
-    calloc.free(buf);
-    return result;
+    return _ops!.statvfs(path);
   }
 
   /// Read the target path of a symbolic link.
@@ -633,21 +205,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on failure (e.g., path is not a symlink).
   String readlink(String path) {
     _ensureConnected();
-
-    final pPath = path.toNativeUtf8();
-    final buf = calloc<Uint8>(1024);
-
-    final rc = _readlink(_ctx, pPath, buf.cast(), 1024);
-    malloc.free(pPath);
-
-    if (rc < 0) {
-      calloc.free(buf);
-      throw _makeError('Readlink failed');
-    }
-
-    final target = buf.cast<Utf8>().toDartString();
-    calloc.free(buf);
-    return target;
+    return _ops!.readlink(path);
   }
 
   /// Check whether a file or directory exists.
@@ -676,13 +234,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] if the file cannot be opened.
   Pointer openFileHandle(String path) {
     _ensureConnected();
-    final pPath = path.toNativeUtf8();
-    final fh = _openFile(_ctx, pPath);
-    malloc.free(pPath);
-    if (fh == nullptr) {
-      throw _makeError('Open failed');
-    }
-    return fh;
+    return _ops!.openFileHandle(path);
   }
 
   /// Open a file and get its size in one call.
@@ -693,16 +245,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on failure.
   (Pointer handle, int size) openFileWithSize(String path) {
     _ensureConnected();
-    final pPath = path.toNativeUtf8();
-    final pSize = calloc<Int64>();
-    final fh = _openFileWithSize(_ctx, pPath, pSize);
-    malloc.free(pPath);
-    final size = pSize.value;
-    calloc.free(pSize);
-    if (fh == nullptr) {
-      throw _makeError('Open failed');
-    }
-    return (fh, size);
+    return _ops!.openFileWithSize(path);
   }
 
   /// Read [length] bytes at [offset] from an open file handle.
@@ -710,19 +253,13 @@ class Smb2Client implements Finalizable {
   /// The handle must have been obtained from [openFileHandle] or [openFileWithSize].
   Uint8List readHandle(Pointer handle, {int offset = 0, required int length}) {
     _ensureConnected();
-    final buf = malloc<Uint8>(length);
-    final n = _preadHandle(_ctx, handle, buf, length, offset);
-    if (n < 0) {
-      malloc.free(buf);
-      throw _makeError('Handle read failed');
-    }
-    return _ownedTypedList(buf, n);
+    return _ops!.readHandle(handle, offset: offset, length: length);
   }
 
   /// Close a file handle opened with [openFileHandle] or [openFileWithSize].
   void closeHandle(Pointer handle) {
     if (_ctx == nullptr || handle == nullptr) return;
-    _closeFile(_ctx, handle);
+    _ops?.closeHandle(handle);
   }
 
   // ─── Streaming ──────────────────────────────────────────────────────
@@ -757,19 +294,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on write failure.
   void writeFileRange(String path, Uint8List data, {int offset = 0}) {
     _ensureConnected();
-
-    final pPath = path.toNativeUtf8();
-    final buf = malloc<Uint8>(data.length);
-    buf.asTypedList(data.length).setAll(0, data);
-
-    final n = _pwrite(_ctx, pPath, buf, data.length, offset);
-
-    malloc.free(pPath);
-    malloc.free(buf);
-
-    if (n < 0) {
-      throw _makeError('Write failed');
-    }
+    _ops!.writeFileRange(path, data, offset: offset);
   }
 
   /// Write [data] to a file, creating or truncating it.
@@ -779,19 +304,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on failure.
   void writeFile(String path, Uint8List data) {
     _ensureConnected();
-
-    final pPath = path.toNativeUtf8();
-    final buf = malloc<Uint8>(data.length);
-    buf.asTypedList(data.length).setAll(0, data);
-
-    final n = _writeFile(_ctx, pPath, buf, data.length);
-
-    malloc.free(pPath);
-    malloc.free(buf);
-
-    if (n < 0) {
-      throw _makeError('Write file failed');
-    }
+    _ops!.writeFile(path, data);
   }
 
   // ─── Write handles (open once, write many, close once) ─────────────────
@@ -804,13 +317,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] if the file cannot be opened.
   Pointer openFileHandleWrite(String path) {
     _ensureConnected();
-    final pPath = path.toNativeUtf8();
-    final fh = _openFileWrite(_ctx, pPath);
-    malloc.free(pPath);
-    if (fh == nullptr) {
-      throw _makeError('Open for write failed');
-    }
-    return fh;
+    return _ops!.openFileHandleWrite(path);
   }
 
   /// Write [data] at [offset] to an open file handle.
@@ -818,13 +325,7 @@ class Smb2Client implements Finalizable {
   /// The handle must have been obtained from [openFileHandleWrite].
   void writeHandle(Pointer handle, Uint8List data, {int offset = 0}) {
     _ensureConnected();
-    final buf = malloc<Uint8>(data.length);
-    buf.asTypedList(data.length).setAll(0, data);
-    final n = _pwriteHandle(_ctx, handle, buf, data.length, offset);
-    malloc.free(buf);
-    if (n < 0) {
-      throw _makeError('Handle write failed');
-    }
+    _ops!.writeHandle(handle, data, offset: offset);
   }
 
   /// Flush all buffered writes on a file handle to the server.
@@ -835,10 +336,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on failure.
   void fsync(Pointer handle) {
     _ensureConnected();
-    final rc = _fsync(_ctx, handle);
-    if (rc < 0) {
-      throw _makeError('Fsync failed');
-    }
+    _ops!.fsync(handle);
   }
 
   /// Truncate an open file handle to [length] bytes.
@@ -846,18 +344,8 @@ class Smb2Client implements Finalizable {
   /// [length] must be non-negative.
   /// Throws [Smb2Exception] on failure.
   void ftruncate(Pointer handle, int length) {
-    if (length < 0) {
-      throw const Smb2Exception(
-        'Truncate length must be non-negative',
-        22,
-        Smb2ErrorType.invalidParam,
-      );
-    }
     _ensureConnected();
-    final rc = _ftruncate(_ctx, handle, length);
-    if (rc < 0) {
-      throw _makeError('Ftruncate failed');
-    }
+    _ops!.ftruncate(handle, length);
   }
 
   // ─── Streaming write ────────────────────────────────────────────────────
@@ -887,12 +375,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] if the file cannot be deleted.
   void deleteFile(String path) {
     _ensureConnected();
-    final pPath = path.toNativeUtf8();
-    final rc = _unlink(_ctx, pPath);
-    malloc.free(pPath);
-    if (rc < 0) {
-      throw _makeError('Delete failed');
-    }
+    _ops!.deleteFile(path);
   }
 
   /// Create a directory.
@@ -900,12 +383,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] if the directory cannot be created.
   void mkdir(String path) {
     _ensureConnected();
-    final pPath = path.toNativeUtf8();
-    final rc = _mkdir(_ctx, pPath);
-    malloc.free(pPath);
-    if (rc < 0) {
-      throw _makeError('Mkdir failed');
-    }
+    _ops!.mkdir(path);
   }
 
   /// Delete an empty directory.
@@ -913,12 +391,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] if the directory cannot be removed.
   void rmdir(String path) {
     _ensureConnected();
-    final pPath = path.toNativeUtf8();
-    final rc = _rmdir(_ctx, pPath);
-    malloc.free(pPath);
-    if (rc < 0) {
-      throw _makeError('Rmdir failed');
-    }
+    _ops!.rmdir(path);
   }
 
   /// Rename or move a file or directory.
@@ -926,14 +399,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on failure.
   void rename(String oldPath, String newPath) {
     _ensureConnected();
-    final pOld = oldPath.toNativeUtf8();
-    final pNew = newPath.toNativeUtf8();
-    final rc = _rename(_ctx, pOld, pNew);
-    malloc.free(pOld);
-    malloc.free(pNew);
-    if (rc < 0) {
-      throw _makeError('Rename failed');
-    }
+    _ops!.rename(oldPath, newPath);
   }
 
   /// Truncate a file to [length] bytes.
@@ -941,66 +407,15 @@ class Smb2Client implements Finalizable {
   /// [length] must be non-negative.
   /// Throws [Smb2Exception] on failure.
   void truncate(String path, int length) {
-    if (length < 0) {
-      throw const Smb2Exception(
-        'Truncate length must be non-negative',
-        22,
-        Smb2ErrorType.invalidParam,
-      );
-    }
     _ensureConnected();
-    final pPath = path.toNativeUtf8();
-    final rc = _truncate(_ctx, pPath, length);
-    malloc.free(pPath);
-    if (rc < 0) {
-      throw _makeError('Truncate failed');
-    }
+    _ops!.truncate(path, length);
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────
 
   void _ensureConnected() {
-    if (_ctx == nullptr) {
+    if (_ctx == nullptr || _ops == null) {
       throw const Smb2Exception('Not connected. Call connect() first.');
     }
   }
-
-  /// Build a typed [Smb2Exception] from the current context error.
-  ///
-  /// Classification consults the libsmb2 message first, then the errno.
-  /// libsmb2's transport-failure paths (`POLLHUP`, `POLLERR`,
-  /// `Read from socket failed`, …) call `smb2_set_error()` without updating
-  /// the context's NT status, so the errno can be 0 — or a *stale* value from
-  /// an earlier operation. Trusting the message keeps these failures
-  /// classified as [Smb2ErrorType.connection] so auto-reconnect kicks in.
-  Smb2Exception _makeError(String prefix) {
-    final ptr = _error(_ctx);
-    final msg = ptr == nullptr ? 'Unknown error' : ptr.toDartString();
-    final errno = _getErrno(_ctx);
-    return Smb2Exception(
-      '$prefix: $msg',
-      errno,
-      Smb2ErrorType.classify(msg, errno),
-    );
-  }
-
-  /// Build a typed [Smb2Exception] from the thread-local last error.
-  ///
-  /// Used when the libsmb2 context could not be created (e.g. connect
-  /// failure), so there is no errno available — classification is purely
-  /// message-based.
-  Smb2Exception _makeLastError(String prefix) {
-    final msg = _lastError().toDartString();
-    return Smb2Exception(
-      '$prefix: $msg',
-      null,
-      Smb2ErrorType.fromMessage(msg),
-    );
-  }
-
-  static Smb2FileType _parseType(int type) => switch (type) {
-    1 => Smb2FileType.directory,
-    2 => Smb2FileType.link,
-    _ => Smb2FileType.file,
-  };
 }

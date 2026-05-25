@@ -19,12 +19,12 @@ import '_fixture.dart';
 /// The tests create and clean up temporary files / directories under a
 /// `_dart_smb2_test` folder on the share root.
 void main() {
+  installTestLibPath();
   final cache = bootstrapCache;
   final host = cache.host;
   final share = cache.share;
   final user = cache.user;
   final pass = cache.password;
-  final libPath = cache.libPath;
 
   const testDir = '_dart_smb2_test';
 
@@ -34,7 +34,7 @@ void main() {
     late Smb2Client client;
 
     setUp(() {
-      client = Smb2Client.open(libPath);
+      client = Smb2Client.open();
       client.connect(host: host, share: share, user: user, password: pass);
       // Ensure test directory exists.
       try {
@@ -232,7 +232,6 @@ void main() {
       user: user,
       password: pass,
       workers: workers,
-      libPath: libPath,
     );
 
     setUp(() async {
@@ -374,6 +373,94 @@ void main() {
       await Future.wait(futures);
       final read = await pool.readFile('$testDir/pool_write.txt');
       expect(read.length, greaterThan(0));
+    });
+  });
+
+  // ── L1 fix from the 0.1.0 code review, write-side coverage.
+  //
+  // After Phase C of the ffigen migration, the write/management paths
+  // also flow through Smb2Native, so the embedded-NUL guard applies
+  // uniformly. These tests fail-fast BEFORE any FFI call — they don't
+  // touch the share state, so they're safe to leave on top of the
+  // existing fixtures without a setUp/tearDown of their own.
+  group('Smb2Client — write path NUL byte rejection (L1)', () {
+    late Smb2Client client;
+
+    setUp(() {
+      client = Smb2Client.open();
+      client.connect(host: host, share: share, user: user, password: pass);
+    });
+    tearDown(() => client.disconnect());
+
+    final payload = Uint8List.fromList('ignored'.codeUnits);
+
+    test('writeFile rejects NUL in path', () {
+      expect(
+        () => client.writeFile('foo\u0000bar', payload),
+        throwsA(
+          isA<Smb2Exception>().having(
+            (e) => e.type,
+            'type',
+            Smb2ErrorType.invalidParam,
+          ),
+        ),
+      );
+    });
+
+    test('writeFileRange rejects NUL in path', () {
+      expect(
+        () => client.writeFileRange('foo\u0000bar', payload),
+        throwsA(isA<Smb2Exception>()),
+      );
+    });
+
+    test('openFileHandleWrite rejects NUL in path', () {
+      expect(
+        () => client.openFileHandleWrite('foo\u0000bar'),
+        throwsA(isA<Smb2Exception>()),
+      );
+    });
+
+    test('deleteFile rejects NUL in path', () {
+      expect(
+        () => client.deleteFile('foo\u0000bar'),
+        throwsA(isA<Smb2Exception>()),
+      );
+    });
+
+    test('mkdir rejects NUL in path', () {
+      expect(
+        () => client.mkdir('foo\u0000bar'),
+        throwsA(isA<Smb2Exception>()),
+      );
+    });
+
+    test('rmdir rejects NUL in path', () {
+      expect(
+        () => client.rmdir('foo\u0000bar'),
+        throwsA(isA<Smb2Exception>()),
+      );
+    });
+
+    test('truncate rejects NUL in path', () {
+      expect(
+        () => client.truncate('foo\u0000bar', 0),
+        throwsA(isA<Smb2Exception>()),
+      );
+    });
+
+    test('rename rejects NUL in oldPath', () {
+      expect(
+        () => client.rename('foo\u0000bar', 'good'),
+        throwsA(isA<Smb2Exception>()),
+      );
+    });
+
+    test('rename rejects NUL in newPath', () {
+      expect(
+        () => client.rename('good', 'foo\u0000bar'),
+        throwsA(isA<Smb2Exception>()),
+      );
     });
   });
 }

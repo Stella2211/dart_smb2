@@ -104,4 +104,49 @@ void main() {
       expect(fakePool.listDirCalls, 2);
     });
   });
+
+  // L2 fix from the 0.1.0 code review: when a write/management op
+  // changes `folder/file.txt`, the parent listing cache for `folder`
+  // must be invalidated. The old separator logic only looked for `/`
+  // — paths arriving with `\` (SMB native separator, or
+  // Windows-flavoured callers) silently kept stale listings around.
+  group('cache parent invalidation handles both / and \\ separators (L2)', () {
+    test('forward-slash path invalidates parent listing', () async {
+      await cached.listDirectory('folder');
+      expect(fakePool.listDirCalls, 1);
+
+      cached.debugInvalidatePath('folder/file.txt');
+
+      await cached.listDirectory('folder');
+      expect(fakePool.listDirCalls, 2);
+    });
+
+    test('backslash path invalidates parent listing', () async {
+      await cached.listDirectory('folder');
+      expect(fakePool.listDirCalls, 1);
+
+      cached.debugInvalidatePath(r'folder\file.txt');
+
+      await cached.listDirectory('folder');
+      expect(fakePool.listDirCalls, 2);
+    });
+
+    test('mixed-separator path invalidates first parent component', () async {
+      // Path is `a/b\c.txt` — the rightmost separator is `\`, so the
+      // parent is `a/b` (not `a` and not the empty root). The cache
+      // entry for `a/b` should be removed; the one for `a` should not.
+      await cached.listDirectory('a');
+      await cached.listDirectory('a/b');
+      expect(fakePool.listDirCalls, 2);
+
+      cached.debugInvalidatePath(r'a/b\c.txt');
+
+      // Re-fetching `a/b` hits the network again.
+      await cached.listDirectory('a/b');
+      expect(fakePool.listDirCalls, 3);
+      // `a` is still warm.
+      await cached.listDirectory('a');
+      expect(fakePool.listDirCalls, 3);
+    });
+  });
 }

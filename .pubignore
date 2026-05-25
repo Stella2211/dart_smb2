@@ -39,6 +39,13 @@ analysis_options.yaml
 /test/
 dart_test.yaml
 
+# ffigen configuration — only meaningful for contributors who want to
+# regenerate `lib/src/ffi/libsmb2_bindings.dart` from the libsmb2 headers
+# in the sibling `libsmb2-scripts` repository. Package consumers import
+# the already-generated bindings directly; they don't need the config or
+# the `ffigen` dev dependency that drives it.
+ffigen.yaml
+
 # Pre-built native binaries are downloaded on demand by the consumer's
 # podspec / CMakeLists / gradle from GitHub Releases. Don't ship the local
 # dev-machine copies, even when they happen to exist on disk.

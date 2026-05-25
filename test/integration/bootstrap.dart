@@ -24,6 +24,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dart_smb2/dart_smb2.dart';
+// ignore: implementation_imports — bootstrap is internal tooling; it
+// installs the test override so `Smb2Pool.connect()` below targets the
+// dev-machine `.dylib` / `.so` instead of the platform-default loader
+// name.
+import 'package:dart_smb2/src/ffi/native_lib.dart';
 
 const String _integrationDir = 'test/integration';
 const String _envFile = '$_integrationDir/.env.test';
@@ -68,12 +73,12 @@ Future<void> main() async {
   }
 
   stdout.writeln('Connecting to smb://$host/$share as $user...');
+  debugLibSmb2PathOverride = libPath;
   final pool = await _connectWithRetry(
     host: host,
     share: share,
     user: user,
     password: password,
-    libPath: libPath,
   );
 
   // Drop a known seed file (1 MiB of zero-bytes) so read/handle tests have
@@ -175,7 +180,6 @@ Future<Smb2Pool> _connectWithRetry({
   required String share,
   required String user,
   required String password,
-  required String libPath,
 }) async {
   Object? lastError;
   for (var attempt = 1; attempt <= 6; attempt++) {
@@ -186,7 +190,6 @@ Future<Smb2Pool> _connectWithRetry({
         user: user,
         password: password,
         workers: 1,
-        libPath: libPath,
         timeoutSeconds: 10,
       );
     } catch (e) {
