@@ -34,13 +34,19 @@ analysis_options.yaml
 /build/
 /coverage/
 
-# Others
-/imgs/
-/docs/
-/scripts/
-/windows/libs/
-/linux/libs/
-/macos/libs/
-/ios/Frameworks/
-/ios/libs/
+# Test infrastructure — kept on GitHub for contributors, not shipped
+# to package consumers.
+/test/
+dart_test.yaml
+
+# Pre-built native binaries are downloaded on demand by the consumer's
+# podspec / CMakeLists / gradle from GitHub Releases. Don't ship the local
+# dev-machine copies, even when they happen to exist on disk.
 /android/src/main/jniLibs/
+/ios/dart_smb2/Frameworks/
+/macos/dart_smb2/Frameworks/
+/linux/libs/
+/windows/libs/
+
+# Local-only documentation.
+/docs/

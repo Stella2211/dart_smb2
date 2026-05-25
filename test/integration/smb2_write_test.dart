@@ -2,39 +2,29 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
+@Tags(['integration'])
+library;
+
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dart_smb2/dart_smb2.dart';
 import 'package:test/test.dart';
 
-/// Integration tests for write operations across Smb2Client and Smb2Pool.
-///
-/// These tests require a running SMB server with **write access**.
-/// Set the environment variables:
-///   SMB2_HOST, SMB2_SHARE, SMB2_USER, SMB2_PASS, SMB2_LIB_PATH
-///
-/// The tests create and clean up temporary files/directories under a
-/// `_dart_smb2_test` folder on the share root.
-///
-/// Run with:
-///   SMB2_HOST=192.168.1.1 SMB2_SHARE=Files SMB2_USER=user SMB2_PASS=pass \
-///   SMB2_LIB_PATH=scripts/output/macos/lib/libsmb2_wrapper.dylib \
-///   dart test test/smb2_write_test.dart -r expanded
-void main() {
-  final host = Platform.environment['SMB2_HOST'];
-  final share = Platform.environment['SMB2_SHARE'];
-  final user = Platform.environment['SMB2_USER'];
-  final pass = Platform.environment['SMB2_PASS'];
-  final libPath = Platform.environment['SMB2_LIB_PATH'];
+import '_fixture.dart';
 
-  if (host == null || share == null || libPath == null) {
-    print(
-      'Skipping write integration tests — set SMB2_HOST, SMB2_SHARE, SMB2_LIB_PATH',
-    );
-    return;
-  }
+/// Integration tests for write operations across [Smb2Client] and [Smb2Pool]
+/// against the local Samba container seeded by `bootstrap.dart`.
+///
+/// The tests create and clean up temporary files / directories under a
+/// `_dart_smb2_test` folder on the share root.
+void main() {
+  final cache = bootstrapCache;
+  final host = cache.host;
+  final share = cache.share;
+  final user = cache.user;
+  final pass = cache.password;
+  final libPath = cache.libPath;
 
   const testDir = '_dart_smb2_test';
 

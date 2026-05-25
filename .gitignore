@@ -33,14 +33,20 @@ migrate_working_dir/
 /build/
 /coverage/
 
-# Others
-/docs/
-/scripts/
-/windows/libs/
-/linux/libs/
-/macos/libs/
-/ios/Frameworks/
-/ios/libs/
+# Pre-built native binaries — generated on demand by libsmb2-scripts and
+# installed here by `make checksums`. Never tracked.
 /android/src/main/jniLibs/
+/ios/dart_smb2/Frameworks/
+/macos/dart_smb2/Frameworks/
+/linux/libs/
+/windows/libs/
+
+# Build outputs / IDE noise
 /android/.gradle/
 /android/build/
+
+# Integration test infrastructure: credentials, persistent volumes, and the
+# cache the bootstrap script writes for the fixture.
+test/integration/.env.test
+test/integration/volumes/
+test/integration/.bootstrap-cache.json

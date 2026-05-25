@@ -298,15 +298,8 @@ class Smb2Client implements Finalizable {
   factory Smb2Client(DynamicLibrary lib) => Smb2Client._(lib);
 
   static DynamicLibrary _openDefault() {
-    if (Platform.isMacOS) {
-      // Resolve the dylib relative to the host app bundle:
-      // .../App.app/Contents/MacOS/ → .../App.app/Contents/Frameworks/dart_smb2.framework/Versions/A/
-      final exe = Platform.resolvedExecutable;
-      final macOS = exe.substring(0, exe.lastIndexOf('/'));
-      final dylib = '$macOS/../Frameworks/dart_smb2.framework/Versions/A/libsmb2.dylib';
-      return DynamicLibrary.open(dylib);
-    } else if (Platform.isIOS) {
-      return DynamicLibrary.process();
+    if (Platform.isMacOS || Platform.isIOS) {
+      return DynamicLibrary.open('libsmb2.framework/libsmb2');
     } else if (Platform.isAndroid || Platform.isLinux) {
       return DynamicLibrary.open('libsmb2.so');
     } else if (Platform.isWindows) {

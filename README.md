@@ -2,14 +2,20 @@
 
 #### SMB2/3 client for Dart & Flutter.
 
-[![](https://img.shields.io/pub/v/dart_smb2.svg)](https://pub.dev/packages/dart_smb2)
-[![](https://img.shields.io/badge/libsmb2-v6.1.0-orange.svg)](https://github.com/sahlberg/libsmb2)
-[![](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
-[![](https://img.shields.io/github/stars/ales-drnz/dart_smb2?style=flat&logo=github)](https://github.com/ales-drnz/dart_smb2)
-[![](https://img.shields.io/discord/1491115396663869470?logo=discord&logoColor=white)](https://discord.gg/ejSw5M24C2)
+[![](https://img.shields.io/pub/v/dart_smb2.svg?style=for-the-badge&logo=dart&logoColor=white)](https://pub.dev/packages/dart_smb2)
+[![](https://img.shields.io/badge/libsmb2-v6.1.0-orange.svg?style=for-the-badge)](https://github.com/sahlberg/libsmb2)
+[![](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg?style=for-the-badge)](LICENSE)
+[![](https://img.shields.io/github/stars/ales-drnz/dart_smb2?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ales-drnz/dart_smb2)
+[![](https://img.shields.io/discord/1491115396663869470?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/g2Qf4Mq9MP)
+[![](https://img.shields.io/badge/Patreon-F96854?style=for-the-badge&logo=patreon&logoColor=white)](https://www.patreon.com/cw/ales_drnz)
+[![](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/ales.drnz)
 
-<img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/dart_smb2.png" width="70" align="left" style="margin-right: 15px;" alt="logo" />`dart_smb2` is an SMB2/3 client for Dart powered by [libsmb2](https://github.com/sahlberg/libsmb2). It provides synchronous FFI bindings, a worker-isolate pool with auto-reconnect, scope-based file helpers and an optional caching layer.
-<br clear="left"/>
+<table>
+<tr>
+<td valign="middle" width="90"><img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/dart_smb2.png" width="70" alt="logo"></td>
+<td valign="middle"><code>dart_smb2</code> is a Dart client for SMB2/3 file shares built on libsmb2 <code>v6.1.0</code>. It provides a streaming API for reading, writing and managing files over the network across desktop and mobile.</td>
+</tr>
+</table>
 
 ---
 
@@ -19,82 +25,114 @@ Add `dart_smb2` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dart_smb2: ^0.0.6
+  dart_smb2: ^0.0.7
 ```
-
-### Platform Requirements
-
-*   **Android**: SDK 24 (Android 7.0) or above.
-*   **iOS**: 12.0 or above.
-*   **macOS**: 10.14 or above (Apple Silicon).
-*   **Windows**: x86_64.
-*   **Linux**: x86_64.
 
 ---
 
 ## Platforms
 
-| Platform  | Architecture | Device | Emulator | libsmb2 version |
-| :--- | :--- | :---: | :---: | :---: |
-| **Android** | arm64-v8a, x86_64 | ✅ | ✅ | v6.1.0 |
-| **iOS** | arm64, x86_64 | ✅ | ✅ | v6.1.0 |
-| **macOS** | arm64 | ✅ | — | v6.1.0 |
-| **Windows** | x86_64 | ✅ | — | v6.1.0 |
-| **Linux** | x86_64 | ✅ | — | v6.1.0 |
+| Platform  | Minimum | Architecture | Device | Emulator |
+| :--- | :--- | :--- | :---: | :---:
+| **Android** | 7.0 (SDK 24) | arm64-v8a, armeabi-v7a, x86_64 | ✅ | ✅ |
+| **iOS** | 15.0 | arm64, x86_64 | ✅ | ✅ |
+| **macOS** | 12.0 | arm64, x86_64 | ✅ | – |
+| **Windows**| 10 | arm64, x86_64 | ✅ | – |
+| **Linux** | Ubuntu 24.04 | aarch64, x86_64 | ✅ | – |
 
 ---
 
-## Reference
+## Contents
 
 *   [Visuals](#visuals)
 *   [Features](#features)
 *   [Quick Start](#quick-start)
 *   [Guide](#guide)
-    *   [1. Connection & Lifecycle](#1-connection--lifecycle)
-        *   [1.1 Sync Client](#11-sync-client)
-        *   [1.2 Worker Pool](#12-worker-pool)
-        *   [1.3 Cached Pool](#13-cached-pool)
-        *   [1.4 Disconnecting](#14-disconnecting)
-        *   [1.5 Security Options](#15-security-options)
-    *   [2. Path Format](#2-path-format)
-    *   [3. Directory Listing](#3-directory-listing)
-    *   [4. File Metadata](#4-file-metadata)
-        *   [4.1 Stat](#41-stat)
-        *   [4.2 File Size](#42-file-size)
-        *   [4.3 Exists](#43-exists)
-        *   [4.4 Filesystem Info (statvfs)](#44-filesystem-info-statvfs)
-        *   [4.5 Read Symlink](#45-read-symlink)
-        *   [4.6 Connection Health (echo)](#46-connection-health-echo)
-    *   [5. Reading Files](#5-reading-files)
-        *   [5.1 Read Entire File](#51-read-entire-file)
-        *   [5.2 Partial Read (Byte Range)](#52-partial-read-byte-range)
-        *   [5.3 Scoped File Access (withFile)](#53-scoped-file-access-withfile)
-        *   [5.4 Streaming (Chunked)](#54-streaming-chunked)
-        *   [5.5 Download to File](#55-download-to-file)
-        *   [5.6 Low-Level File Handles](#56-low-level-file-handles)
-    *   [6. Writing Files](#6-writing-files)
-        *   [6.1 Write Entire File](#61-write-entire-file)
-        *   [6.2 Partial Write (Byte Range)](#62-partial-write-byte-range)
-        *   [6.3 Streaming Write (Chunked)](#63-streaming-write-chunked)
-        *   [6.4 File Handles (Write)](#64-file-handles-write)
-        *   [6.5 Flush (fsync)](#65-flush-fsync)
-        *   [6.6 Truncate Handle (ftruncate)](#66-truncate-handle-ftruncate)
-    *   [7. File & Directory Management](#7-file--directory-management)
-        *   [7.1 Create Directory](#71-create-directory)
-        *   [7.2 Delete File](#72-delete-file)
-        *   [7.3 Delete Directory](#73-delete-directory)
-        *   [7.4 Rename / Move](#74-rename--move)
-        *   [7.5 Truncate](#75-truncate)
-    *   [8. Share Enumeration](#8-share-enumeration)
-    *   [9. Caching](#9-caching)
-    *   [10. Error Handling](#10-error-handling)
-        *   [10.1 Smb2Exception](#101-smb2exception)
-        *   [10.2 Error Types](#102-error-types)
+    <details>
+    <summary><a href="#1-connection--lifecycle"><b>1. Connection & Lifecycle</b></a></summary>
+
+    * [1.1 Sync Client](#11-sync-client)
+    * [1.2 Worker Pool](#12-worker-pool)
+    * [1.3 Cached Pool](#13-cached-pool)
+    * [1.4 Disconnecting](#14-disconnecting)
+    * [1.5 Security Options](#15-security-options)
+
+    </details>
+
+    <details>
+    <summary><a href="#2-path-format"><b>2. Path Format</b></a></summary>
+    </details>
+
+    <details>
+    <summary><a href="#3-directory-listing"><b>3. Directory Listing</b></a></summary>
+    </details>
+
+    <details>
+    <summary><a href="#4-file-metadata"><b>4. File Metadata</b></a></summary>
+
+    * [4.1 Stat](#41-stat)
+    * [4.2 File Size](#42-file-size)
+    * [4.3 Exists](#43-exists)
+    * [4.4 Filesystem Info (statvfs)](#44-filesystem-info-statvfs)
+    * [4.5 Read Symlink](#45-read-symlink)
+    * [4.6 Connection Health (echo)](#46-connection-health-echo)
+
+    </details>
+
+    <details>
+    <summary><a href="#5-reading-files"><b>5. Reading Files</b></a></summary>
+
+    * [5.1 Read Entire File](#51-read-entire-file)
+    * [5.2 Partial Read (Byte Range)](#52-partial-read-byte-range)
+    * [5.3 Scoped File Access (withFile)](#53-scoped-file-access-withfile)
+    * [5.4 Streaming (Chunked)](#54-streaming-chunked)
+    * [5.5 Download to File](#55-download-to-file)
+    * [5.6 Low-Level File Handles](#56-low-level-file-handles)
+
+    </details>
+
+    <details>
+    <summary><a href="#6-writing-files"><b>6. Writing Files</b></a></summary>
+
+    * [6.1 Write Entire File](#61-write-entire-file)
+    * [6.2 Partial Write (Byte Range)](#62-partial-write-byte-range)
+    * [6.3 Streaming Write (Chunked)](#63-streaming-write-chunked)
+    * [6.4 File Handles (Write)](#64-file-handles-write)
+    * [6.5 Flush (fsync)](#65-flush-fsync)
+    * [6.6 Truncate Handle (ftruncate)](#66-truncate-handle-ftruncate)
+
+    </details>
+
+    <details>
+    <summary><a href="#7-file--directory-management"><b>7. File & Directory Management</b></a></summary>
+
+    * [7.1 Create Directory](#71-create-directory)
+    * [7.2 Delete File](#72-delete-file)
+    * [7.3 Delete Directory](#73-delete-directory)
+    * [7.4 Rename / Move](#74-rename--move)
+    * [7.5 Truncate](#75-truncate)
+
+    </details>
+
+    <details>
+    <summary><a href="#8-share-enumeration"><b>8. Share Enumeration</b></a></summary>
+    </details>
+
+    <details>
+    <summary><a href="#9-caching"><b>9. Caching</b></a></summary>
+    </details>
+
+    <details>
+    <summary><a href="#10-error-handling"><b>10. Error Handling</b></a></summary>
+
+    * [10.1 Smb2Exception](#101-smb2exception)
+    * [10.2 Error Types](#102-error-types)
+
+    </details>
+
 *   [Types Reference](#types-reference)
-*   [Testing](#testing)
 *   [Permissions](#permissions)
-*   [Project Background](#project-background)
-*   [Funding](#funding)
+*   [Project background](#project-background)
 
 ---
 
@@ -121,26 +159,38 @@ The following images demonstrate the example app included in the `example/` dire
 
 ## Features
 
-- ⚡ **SMB2/3 Protocol** — supports SMB 2.02, 2.10, 3.0, 3.02, 3.1.1.
-- 📂 **Directory Listing** — returns name, type, size, and timestamps per entry with no additional per-entry round-trips.
-- 📄 **Partial File Reads** — read specific byte ranges with `pread` — ideal for reading partial content without downloading the full file.
-- 📦 **Full File Reads** — download entire files into memory.
-- 🔁 **Streaming** — chunked reads and writes via sync `Iterable` or async `Stream`, with progress + cancel callbacks and a single persistent handle.
-- ⬇️ **Download to File** — writes an SMB file to a local `File` with progress and cancel support.
-- 🧹 **Scoped File Access** — `withFile(path, body)` opens a read handle, runs your callback with a read-on-demand `Smb2File`, and guarantees cleanup on any exit path (including exceptions and cancellation).
-- 🔓 **File Handles** — open once, read or write many times to minimize round-trips. A Dart `Finalizer` closes leaked handles as a safety net.
-- ✏️ **File Writing** — write entire files or partial byte ranges with automatic chunking.
-- 🔍 **Exists Check** — check if a file or directory exists without reading it.
-- 🗂️ **File & Directory Management** — create directories, delete files/directories, rename/move, and truncate.
-- 📊 **File Stat** — get size, type, and timestamps via SMB2 compound request (single round-trip).
-- 💽 **Filesystem Info** — query total/free disk space via `statvfs`.
-- 🔗 **Symlink Resolution** — read symbolic link targets with `readlink`.
-- 🖲️ **Connection Health** — keepalive `echo` ping to detect disconnections early.
-- 🔄 **Flush & Truncate** — `fsync` to persist writes and `ftruncate` on open handles.
-- 🌐 **Share Enumeration** — list all shares on a server without an active connection.
-- 🧵 **Isolate-Safe** — sync `Smb2Client` designed to run inside Dart isolates; never blocks the UI thread when used via `Smb2Pool`.
-- 🏊 **Worker Pool** — multiple isolate workers with automatic reconnect on connection errors.
-- 💾 **Caching Layer** — optional TTL-based cache for `stat` and `listDirectory` calls, with automatic invalidation on write operations.
+<table>
+<tr>
+<td valign="middle" width="48"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/package.png" width="32"></td>
+<td valign="middle" width="45%"><b>Pure Dart FFI</b><br>synchronous bindings to libsmb2 via <code>dart:ffi</code>, with native binaries bundled for every supported platform.</td>
+<td valign="middle" width="48"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/globe.png" width="32"></td>
+<td valign="middle" width="45%"><b>Cross-platform</b><br>runs on macOS, Windows, Linux, iOS and Android — same API on every host.</td>
+</tr>
+<tr>
+<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/file-code.png" width="32"></td>
+<td valign="middle"><b>SMB 2.02 → 3.1.1</b><br>full protocol coverage including encryption (<code>seal</code>), signing and version pinning via <code>Smb2Version</code>.</td>
+<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/wrench.png" width="32"></td>
+<td valign="middle"><b>Worker pool</b><br><code>Smb2Pool</code> spreads requests across N isolate workers and reconnects transparently when a connection drops.</td>
+</tr>
+<tr>
+<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/folder.png" width="32"></td>
+<td valign="middle"><b>File & directory ops</b><br><code>listDirectory</code>, <code>stat</code>, <code>exists</code>, <code>mkdir</code>, <code>rmdir</code>, <code>rename</code>, <code>deleteFile</code>, <code>truncate</code> and symlink resolution.</td>
+<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/download.png" width="32"></td>
+<td valign="middle"><b>Streaming reads & writes</b><br>chunked I/O via sync <code>Iterable</code> or async <code>Stream</code>, with <code>onProgress</code> + <code>isCanceled</code> callbacks and a single persistent handle.</td>
+</tr>
+<tr>
+<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/shield-check.png" width="32"></td>
+<td valign="middle"><b>Safe handles</b><br><code>withFile(path, body)</code> opens a handle, runs your callback and guarantees <code>closeHandle</code> on any exit path. A <code>Finalizer</code> closes leaked handles as a safety net.</td>
+<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/hard-drive.png" width="32"></td>
+<td valign="middle"><b>Filesystem info</b><br><code>statvfs</code> for free/total disk space, <code>listShares</code> for share enumeration, <code>echo</code> for keepalive ping.</td>
+</tr>
+<tr>
+<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/layers.png" width="32"></td>
+<td valign="middle"><b>Cached reads</b><br><code>CachedSmb2Pool</code> wraps the pool with a TTL cache for <code>stat</code> and <code>listDirectory</code> calls, with automatic invalidation on writes.</td>
+<td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/triangle-alert.png" width="32"></td>
+<td valign="middle"><b>Semantic errors</b><br>one <code>Smb2Exception</code> hierarchy with <code>Smb2ErrorType</code> enum (<code>auth</code>, <code>fileNotFound</code>, <code>connection</code>, <code>alreadyExists</code>, …), never raw NTSTATUS codes in your code.</td>
+</tr>
+</table>
 
 ---
 
@@ -1045,51 +1095,6 @@ on Smb2Exception catch (e) {
 
 ---
 
-## Testing
-
-The test suite is split into unit tests (no server required) and integration tests (require a live SMB server).
-
-### Unit tests
-
-```bash
-dart test test/smb2_error_type_test.dart
-```
-
-### Integration tests
-
-Integration tests are for contributors to this package — a Flutter app consuming `dart_smb2` never needs any of this; the native library loads automatically.
-
-Require a running SMB2/3 server and a path to the platform-specific library (since the test process runs outside the Flutter plugin system that normally handles loading). Use `flutter test` so the bundled binary is resolved under `macos/libs/` / `linux/libs/` / etc:
-
-| Variable | Description |
-| :--- | :--- |
-| `SMB2_HOST` | Server IP or hostname |
-| `SMB2_SHARE` | Share name |
-| `SMB2_USER` | Username (optional) |
-| `SMB2_PASS` | Password (optional) |
-| `SMB2_LIB_PATH` | Absolute path to the bundled `libsmb2` binary for your host OS |
-| `SMB2_TEST_FILE` | Path to an existing file on the share (optional — auto-detected if unset) |
-
-```bash
-SMB2_HOST=192.168.1.1 \
-SMB2_SHARE=Files \
-SMB2_USER=user \
-SMB2_PASS=pass \
-SMB2_LIB_PATH="$PWD/macos/libs/libsmb2.dylib" \
-SMB2_TEST_FILE=Documents/report.pdf \
-flutter test test/ -r expanded
-```
-
-**`smb2_pool_test.dart`** covers `Smb2Pool` end-to-end: basic operations, file handles, streaming, round-robin distribution, disconnect behaviour, and performance benchmarks (sequential/parallel throughput, stat latency, handle cycle time).
-
-**`smb2_client_test.dart`** covers the sync `Smb2Client` directly: directory listing, stat, file size, partial reads, and error paths.
-
-**`smb2_cached_pool_test.dart`** covers `CachedSmb2Pool`: cache hits, TTL expiry, and invalidation.
-
-**`smb2_write_test.dart`** covers all write operations on both `Smb2Client` and `Smb2Pool`: writeFile, writeFileRange, writeFileChunked/streamWrite, write handles, exists, mkdir, rmdir, deleteFile, rename, truncate, and concurrent writes. Requires **write access** to the share.
-
----
-
 ## Permissions
 
 ### Android
@@ -1109,17 +1114,9 @@ Add to `DebugProfile.entitlements` and `Release.entitlements`:
 
 ---
 
-## Project Background
+## Project background
 
-The native bindings, FFI wrappers, and isolate logic were implemented through the use of **Claude Code** and **Antigravity**, **Gemini** models were used for the example app UI.
-
----
-
-## Funding
-
-If you find this library useful and want to support its development, consider becoming a supporter on **Patreon**:
-
-[![](https://img.shields.io/badge/Patreon-F96854?style=for-the-badge&logo=patreon&logoColor=white)](https://www.patreon.com/cw/ales_drnz)
+All the native bindings, FFI wrappers, and isolate logic were implemented through the use of Claude Code.
 
 ---
 

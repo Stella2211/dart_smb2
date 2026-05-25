@@ -2,40 +2,28 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
-import 'dart:io';
+@Tags(['integration'])
+library;
+
 import 'package:test/test.dart';
 import 'package:dart_smb2/dart_smb2.dart';
 
-/// Integration tests for Smb2Client.
-///
-/// These tests require a running SMB server. Set the environment variables:
-///   SMB2_HOST, SMB2_SHARE, SMB2_USER, SMB2_PASS, SMB2_LIB_PATH
-///
-/// Run with:
-///   SMB2_HOST=192.168.1.1 SMB2_SHARE=Files SMB2_USER=user SMB2_PASS=pass \
-///   SMB2_LIB_PATH=scripts/output/macos/lib/libsmb2_wrapper.dylib \
-///   dart test
+import '_fixture.dart';
+
+/// Integration tests for Smb2Client against the local Samba container seeded
+/// by `bootstrap.dart`.
 void main() {
-  final host = Platform.environment['SMB2_HOST'];
-  final share = Platform.environment['SMB2_SHARE'];
-  final user = Platform.environment['SMB2_USER'];
-  final pass = Platform.environment['SMB2_PASS'];
-  final libPath = Platform.environment['SMB2_LIB_PATH'];
-
-  if (host == null || share == null || libPath == null) {
-    print('Skipping integration tests — set SMB2_HOST, SMB2_SHARE, SMB2_LIB_PATH');
-    return;
-  }
-
+  final cache = bootstrapCache;
+  final libPath = cache.libPath;
   late Smb2Client client;
 
   setUp(() {
     client = Smb2Client.open(libPath);
     client.connect(
-      host: host,
-      share: share,
-      user: user,
-      password: pass,
+      host: cache.host,
+      share: cache.share,
+      user: cache.user,
+      password: cache.password,
     );
   });
 

@@ -1,0 +1,56 @@
+# Samba test server for dart_smb2 integration tests.
+#
+# Bring up:
+#   docker compose --env-file .env.test up -d --wait
+# Tear down (keep data on disk):
+#   docker compose down
+# Tear down + wipe the share data:
+#   docker compose down -v
+#
+# Port 445 is bound to 127.0.0.1 only so the test server is not reachable
+# from the LAN. If your dev machine has macOS File Sharing enabled (or any
+# other SMB server on 445), either turn it off or bump SMB2_HOST_PORT in
+# `.env.test` to a free port.
+
+services:
+  samba:
+    image: ghcr.io/servercontainers/samba:latest
+    container_name: dart-smb2-test
+    restart: "no"
+    ports:
+      - "127.0.0.1:${SMB2_HOST_PORT:-445}:445"
+    environment:
+      # Account: one local user. The username and password MUST match
+      # SMB2_USER / SMB2_PASS in .env.test — the username is also baked
+      # into the env-var keys below (docker-compose doesn't interpolate
+      # variable names, only values), so changing it requires editing both
+      # files in sync.
+      ACCOUNT_testuser: "${SMB2_PASS}"
+      UID_testuser: "1000"
+      GROUPS_testuser: "users"
+
+      # Share config — full smb.conf section. The image picks up any env var
+      # matching SAMBA_VOLUME_CONFIG_<name> and writes it into smb.conf.
+      SAMBA_VOLUME_CONFIG_public: |
+        [${SMB2_SHARE}]
+            path = /shares/public
+            valid users = testuser
+            writable = yes
+            read only = no
+            browseable = yes
+            guest ok = no
+            create mask = 0664
+            directory mask = 0775
+            force user = testuser
+            # Clear the macOS-compat VFS chain inherited from globals
+            # (catia/fruit/streams_xattr) — fruit rewrites SMB2 CREATE
+            # options and confuses libsmb2 with STATUS_NOT_SUPPORTED.
+            vfs objects =
+    volumes:
+      - ./volumes/share:/shares/public
+    healthcheck:
+      test: ["CMD-SHELL", "smbclient -L //localhost -U ${SMB2_USER}%${SMB2_PASS} -m SMB3 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 8s

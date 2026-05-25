@@ -1,54 +1,45 @@
 Pod::Spec.new do |s|
   s.name             = 'dart_smb2'
-  s.version          = '0.0.6'
+  s.version          = '0.0.7'
   s.summary          = 'SMB2/3 client for Dart.'
   s.homepage         = 'https://github.com/ales-drnz/dart_smb2'
   s.license          = { :type => 'BSD-3-Clause' }
   s.author           = { 'ales-drnz' => '' }
   s.source           = { :path => '.' }
-
-  s.ios.deployment_target = '12.0'
+  s.source_files     = 'dart_smb2/Sources/dart_smb2/**/*'
   s.dependency 'Flutter'
-  s.swift_version = '5.0'
+  s.platform         = :ios, '15.0'
+  s.swift_version    = '5.0'
 
-  # Pre-built xcframework downloaded from GitHub Releases during `pod install`.
-  # Contains device (arm64) + simulator (arm64 + x86_64) slices.
-  s.vendored_frameworks = 'libs/libsmb2_ios-arm64.xcframework'
-
-  s.source_files = 'dart_smb2/Sources/dart_smb2/**/*'
-
-  s.pod_target_xcconfig = {
-    'DEFINES_MODULE' => 'YES',
-  }
-
-  # ── Download pre-built xcframework from GitHub Releases ──────────────────
-  # Runs during `pod install`.
-  # The xcframework is uploaded as a zip: libsmb2_ios-arm64.xcframework.zip
+  # ── Download pre-built dynamic libsmb2.xcframework from GitHub Releases ────
+  # Runs during `pod install`. The xcframework contains a dynamic
+  # libsmb2.framework with @rpath install name, signed by CocoaPods at build
+  # time alongside the rest of the app's frameworks.
   s.prepare_command = <<-CMD
     set -e
-    RELEASE="libsmb2-r4"
-    EXPECTED_SHA="d53b7c5c82c0703e8b28633737ce9616b01c411448ea5edbfcd05e8812606b94"
-    URL="https://github.com/ales-drnz/dart_smb2/releases/download/${RELEASE}/libsmb2_ios-arm64.xcframework.zip"
+    RELEASE="libsmb2-r5"
+    EXPECTED_SHA="a4fa68099a348fabd0753904732152dd3d5809447d6b0df9c75ba335383554c3"
+    URL="https://github.com/ales-drnz/dart_smb2/releases/download/${RELEASE}/libsmb2_ios.xcframework.zip"
 
-    mkdir -p libs
-    ZIP="libs/libsmb2_ios-arm64.xcframework.zip"
+    mkdir -p dart_smb2/Frameworks
+    ZIP="dart_smb2/Frameworks/libsmb2_xcframework.zip"
     DOWNLOAD_NEEDED=1
 
-    if [ -f "libs/libsmb2_ios-arm64.xcframework/Info.plist" ] && [ -f "$ZIP" ]; then
+    if [ -f "dart_smb2/Frameworks/libsmb2.xcframework/Info.plist" ] && [ -f "$ZIP" ]; then
       ACTUAL_SHA=$(shasum -a 256 "$ZIP" | awk '{ print $1 }')
       if [ "$ACTUAL_SHA" = "$EXPECTED_SHA" ]; then
         DOWNLOAD_NEEDED=0
       else
         echo "[dart_smb2] SHA-256 mismatch, redownloading..."
-        rm -rf "libs/libsmb2_ios-arm64.xcframework"
+        rm -rf "dart_smb2/Frameworks/libsmb2.xcframework"
         rm -f "$ZIP"
       fi
-    elif [ -d "libs/libsmb2_ios-arm64.xcframework" ] && [ ! -f "$ZIP" ]; then
+    elif [ -d "dart_smb2/Frameworks/libsmb2.xcframework" ] && [ ! -f "$ZIP" ]; then
       DOWNLOAD_NEEDED=0
     fi
 
     if [ $DOWNLOAD_NEEDED -eq 1 ]; then
-      echo "[dart_smb2] Downloading libsmb2_ios-arm64.xcframework.zip..."
+      echo "[dart_smb2] Downloading libsmb2_ios.xcframework.zip..."
       curl -L -f -o "$ZIP" "$URL"
 
       ACTUAL_SHA=$(shasum -a 256 "$ZIP" | awk '{ print $1 }')
@@ -58,8 +49,15 @@ Pod::Spec.new do |s|
         exit 1
       fi
 
-      unzip -o "$ZIP" -d libs/
+      unzip -o "$ZIP" -d dart_smb2/Frameworks/
       rm -f "$ZIP"
     fi
   CMD
+
+  s.vendored_frameworks = 'dart_smb2/Frameworks/libsmb2.xcframework'
+
+  s.pod_target_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
+    'ENABLE_BITCODE' => 'NO',
+  }
 end

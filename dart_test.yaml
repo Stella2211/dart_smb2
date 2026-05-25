@@ -1,0 +1,11 @@
+# Use the `integration` preset to force serial execution when running
+# integration tests against a single shared Samba container. Pair with
+# `--tags integration` to filter:
+#
+#     dart test -P integration --tags integration
+#
+# Without --concurrency 1, parallel test files race on writes (mkdir/rename
+# and the seed file in particular trigger lost-update behaviour upstream).
+presets:
+  integration:
+    concurrency: 1

@@ -2,59 +2,21 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
+@Tags(['integration'])
+library;
+
 import 'dart:async';
-import 'dart:io';
+
 import 'package:dart_smb2/dart_smb2.dart';
 import 'package:test/test.dart';
 
-/// Integration tests for Smb2Pool.
-///
-/// These tests require a running SMB server. Set the environment variables:
-///   SMB2_HOST, SMB2_SHARE, SMB2_USER, SMB2_PASS, SMB2_LIB_PATH
-///
-/// Optionally set SMB2_TEST_FILE to a path of an existing file on the share
-/// (used for read/handle tests). If not set, the first file found in the root
-/// directory is used.
-///
-/// Run with:
-///   SMB2_HOST=192.168.1.1 SMB2_SHARE=Files SMB2_USER=user SMB2_PASS=pass \
-///   SMB2_LIB_PATH=scripts/output/macos/lib/libsmb2_wrapper.dylib \
-///   dart test test/smb2_pool_test.dart
+import '_fixture.dart';
+
+/// Integration tests for [Smb2Pool] against the local Samba container seeded
+/// by `bootstrap.dart`.
 void main() {
-  final host = Platform.environment['SMB2_HOST'];
-  final share = Platform.environment['SMB2_SHARE'];
-  final user = Platform.environment['SMB2_USER'];
-  final pass = Platform.environment['SMB2_PASS'];
-  final libPath = Platform.environment['SMB2_LIB_PATH'];
-  final testFile = Platform.environment['SMB2_TEST_FILE'];
-
-  if (host == null || share == null || libPath == null) {
-    print(
-      'Skipping Smb2Pool integration tests — set SMB2_HOST, SMB2_SHARE, SMB2_LIB_PATH',
-    );
-    return;
-  }
-
-  Future<Smb2Pool> connect({int workers = 2}) => Smb2Pool.connect(
-    host: host,
-    share: share,
-    user: user,
-    password: pass,
-    workers: workers,
-    libPath: libPath,
-  );
-
-  // Resolve the test file path once from the root listing.
-  Future<String> resolveTestFile(Smb2Pool pool) async {
-    if (testFile != null) return testFile;
-    final entries = await pool.listDirectory('');
-    final file = entries.firstWhere(
-      (e) => e.isFile,
-      orElse: () =>
-          throw StateError('No files found in root — set SMB2_TEST_FILE'),
-    );
-    return file.name;
-  }
+  Future<Smb2Pool> connect({int workers = 2}) => poolFromCache(workers: workers);
+  Future<String> resolveTestFile(Smb2Pool pool) async => bootstrapCache.testFile;
 
   // ─── Basic correctness ──────────────────────────────────────────────────
 
