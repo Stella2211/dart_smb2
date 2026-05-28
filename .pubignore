@@ -1,59 +1,44 @@
-# Miscellaneous
-*.class
-*.log
-*.pyc
-*.swp
-.DS_Store
-.atom/
-.build/
-.buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
+# pubignore — overrides .gitignore when present; mirror dev-only paths here.
 
-# IntelliJ related
-*.iml
-*.ipr
-*.iws
-.idea/
-
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-.vscode/
-.claude/
-analysis_options.yaml
-
-# Flutter/Dart/Pub related
-# Libraries should not include pubspec.lock, per https://dart.dev/guides/libraries/private-files#pubspeclock.
-/pubspec.lock
-**/doc/api/
+# Dart / Flutter
 .dart_tool/
 .flutter-plugins-dependencies
-/build/
-/coverage/
+**/doc/api/
+build/
+coverage/
+pubspec.lock
 
-# Test infrastructure — kept on GitHub for contributors, not shipped
-# to package consumers.
-/test/
-dart_test.yaml
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
 
-# ffigen configuration — only meaningful for contributors who want to
-# regenerate `lib/src/ffi/libsmb2_bindings.dart` from the libsmb2 headers
-# in the sibling `libsmb2-scripts` repository. Package consumers import
-# the already-generated bindings directly; they don't need the config or
-# the `ffigen` dev dependency that drives it.
-ffigen.yaml
+# Native build cache
+.build/
+.swiftpm/
+/android/.gradle/
+/android/build/
 
-# Pre-built native binaries are downloaded on demand by the consumer's
-# podspec / CMakeLists / gradle from GitHub Releases. Don't ship the local
-# dev-machine copies, even when they happen to exist on disk.
+# Native binaries (downloaded by build)
 /android/src/main/jniLibs/
 /ios/dart_smb2/Frameworks/
 /macos/dart_smb2/Frameworks/
 /linux/libs/
 /windows/libs/
 
-# Local-only documentation.
+# Docs
 /docs/
+
+# AI tooling
+.claude/
+CLAUDE.md
+graphify-out/
+
+# Tests
+test/
+dart_test.yaml
+
+# Codegen config
+analysis_options.yaml
+ffigen.yaml

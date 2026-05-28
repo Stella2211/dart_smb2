@@ -29,8 +29,6 @@ class Worker {
   /// dies (Isolate-level exit OR explicit [close]) we can finish every
   /// pending Future with a typed connection error instead of leaving
   /// them hung forever waiting on a reply that's never coming.
-  ///
-  /// Fix H2 from the 0.1.0 code review.
   final Set<Completer<dynamic>> _pending = {};
 
   bool _dead = false;
@@ -94,7 +92,7 @@ class Worker {
   ///   2. The worker dies → [_markDead] iterates every pending
   ///      Completer and finishes it with a typed connection
   ///      [Smb2Exception], so the awaiter sees an error instead of a
-  ///      Future that never settles. This is the H2 fix.
+  ///      Future that never settles.
   ///
   /// Both paths share the same Completer; whichever fires first wins,
   /// and the other side is a no-op (the second check guards against
@@ -180,9 +178,9 @@ class Worker {
   }
 
   /// Test-only: kill the worker isolate immediately, without sending
-  /// the cooperative `close` message first. Verifies the H2 fix —
-  /// pending sends should complete with a connection error instead of
-  /// hanging forever waiting on a reply that's never coming.
+  /// the cooperative `close` message first. Lets tests verify that
+  /// pending sends complete with a connection error instead of hanging
+  /// forever waiting on a reply that's never coming.
   @visibleForTesting
   void killForTest() {
     if (_dead) return;

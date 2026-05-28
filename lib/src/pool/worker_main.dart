@@ -8,11 +8,9 @@
 /// proxy.
 library;
 
-import 'dart:ffi';
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import '../ffi/libsmb2_bindings.dart';
 import '../ffi/native_lib.dart';
 import '../smb2_client.dart';
 import '../smb2_error_type.dart';
@@ -52,15 +50,14 @@ void workerMain(InitMsg init) {
   final cmdPort = ReceivePort();
   init.sendPort.send(cmdPort.sendPort);
 
-  // Handle ID → native pointer map. Strong-typed to `Pointer<smb2fh>`
-  // since the worker is the only owner of file handles inside this
-  // isolate; nothing else legally puts a different pointer kind in here.
-  final handles = <int, Pointer<smb2fh>>{};
+  // Handle ID → opaque [Smb2Handle] map. The worker is the only owner of
+  // file handles inside this isolate.
+  final handles = <int, Smb2Handle>{};
   int nextHandleId = 0;
 
   // Test-only fault injection. Production code never uses these knobs;
-  // the integration suite uses them to drive deterministic concurrency
-  // tests for H2 / H3 / M2 / M4 in the Phase F code-review fixes.
+  // the integration suite uses them to make connection-failure and
+  // reconnect scenarios deterministic, without a real network drop.
   //
   // * `injectFailureCount > 0` makes the next N non-`__inject_*` commands
   //   reply with `ErrorMsg` of type `connection`, so callers exercise the
@@ -71,9 +68,8 @@ void workerMain(InitMsg init) {
   int injectFailureCount = 0;
   bool injectHangNext = false;
   // `__inject_readhandle_zero_next`: makes the next `readHandle` reply
-  // with an empty Uint8List instead of actually calling
-  // `client.readHandle`. Used by the M2 regression test to simulate a
-  // server that returned 0 bytes mid-stream (truncated file).
+  // with an empty Uint8List instead of calling `client.readHandle`, to
+  // simulate a server returning 0 bytes mid-stream (truncated file).
   bool injectReadHandleZeroNext = false;
 
   cmdPort.listen((msg) {
@@ -92,11 +88,13 @@ void workerMain(InitMsg init) {
       }
       if (injectFailureCount > 0) {
         injectFailureCount--;
-        replyTo?.send(ErrorMsg(
-          'Injected connection failure',
-          null,
-          Smb2ErrorType.connection.index,
-        ));
+        replyTo?.send(
+          ErrorMsg(
+            'Injected connection failure',
+            null,
+            Smb2ErrorType.connection.index,
+          ),
+        );
         return;
       }
     }
@@ -120,12 +118,14 @@ void workerMain(InitMsg init) {
         case 'listDir':
           replyTo?.send(client.listDirectory(msg['path'] as String));
         case 'listShares':
-          replyTo?.send(client.listShares(
-            host: msg['host'] as String,
-            user: msg['user'] as String?,
-            password: msg['password'] as String?,
-            domain: msg['domain'] as String?,
-          ));
+          replyTo?.send(
+            client.listShares(
+              host: msg['host'] as String,
+              user: msg['user'] as String?,
+              password: msg['password'] as String?,
+              domain: msg['domain'] as String?,
+            ),
+          );
         case 'readRange':
           final rangeData = client.readFileRange(
             msg['path'] as String,
@@ -205,12 +205,12 @@ void workerMain(InitMsg init) {
         case 'openFile':
           final fh = client.openFileHandle(msg['path'] as String);
           final id = nextHandleId++;
-          handles[id] = fh.cast<smb2fh>();
+          handles[id] = fh;
           replyTo?.send(id);
         case 'openFileWithSize':
           final (fh, size) = client.openFileWithSize(msg['path'] as String);
           final id = nextHandleId++;
-          handles[id] = fh.cast<smb2fh>();
+          handles[id] = fh;
           replyTo?.send([id, size]);
         case 'readHandle':
           final fh = handles[msg['handleId'] as int];
@@ -232,7 +232,7 @@ void workerMain(InitMsg init) {
         case 'openFileWrite':
           final fh = client.openFileHandleWrite(msg['path'] as String);
           final id = nextHandleId++;
-          handles[id] = fh.cast<smb2fh>();
+          handles[id] = fh;
           replyTo?.send(id);
         case 'writeHandle':
           final fh = handles[msg['handleId'] as int];

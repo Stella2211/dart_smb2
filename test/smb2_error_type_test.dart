@@ -167,28 +167,36 @@ void main() {
 
     test('classifies POLLERR socket error as connection', () {
       expect(
-        Smb2ErrorType.fromMessage('smb2_service: POLLERR, Unknown socket error.'),
+        Smb2ErrorType.fromMessage(
+          'smb2_service: POLLERR, Unknown socket error.',
+        ),
         Smb2ErrorType.connection,
       );
     });
 
     test('classifies smb2_service socket error variant as connection', () {
       expect(
-        Smb2ErrorType.fromMessage('smb2_service: socket error Connection reset by peer(54).'),
+        Smb2ErrorType.fromMessage(
+          'smb2_service: socket error Connection reset by peer(54).',
+        ),
         Smb2ErrorType.connection,
       );
     });
 
     test('classifies "Read from socket failed" as connection', () {
       expect(
-        Smb2ErrorType.fromMessage('Read from socket failed, errno:104. Closing socket.'),
+        Smb2ErrorType.fromMessage(
+          'Read from socket failed, errno:104. Closing socket.',
+        ),
         Smb2ErrorType.connection,
       );
     });
 
     test('classifies "remote closed connection" as connection', () {
       expect(
-        Smb2ErrorType.fromMessage('Read from socket failed, remote closed connection.'),
+        Smb2ErrorType.fromMessage(
+          'Read from socket failed, remote closed connection.',
+        ),
         Smb2ErrorType.connection,
       );
     });
@@ -223,14 +231,18 @@ void main() {
 
     test('classifies "Failed to open smb2 socket" as connection', () {
       expect(
-        Smb2ErrorType.fromMessage('Failed to open smb2 socket. Errno:Address family not supported(47).'),
+        Smb2ErrorType.fromMessage(
+          'Failed to open smb2 socket. Errno:Address family not supported(47).',
+        ),
         Smb2ErrorType.connection,
       );
     });
 
     test('classifies "Connect failed with errno" as connection', () {
       expect(
-        Smb2ErrorType.fromMessage('Connect failed with errno : Connection refused(61)'),
+        Smb2ErrorType.fromMessage(
+          'Connect failed with errno : Connection refused(61)',
+        ),
         Smb2ErrorType.connection,
       );
     });
@@ -252,7 +264,9 @@ void main() {
 
     test('classifies upstream typo "alreeady disconnected" as connection', () {
       expect(
-        Smb2ErrorType.fromMessage('connection is alreeady disconnected or was never connected'),
+        Smb2ErrorType.fromMessage(
+          'connection is alreeady disconnected or was never connected',
+        ),
         Smb2ErrorType.connection,
       );
     });
@@ -327,7 +341,7 @@ void main() {
 
   group('Smb2Exception', () {
     test('carries error type', () {
-      final e = Smb2Exception('test', 2, Smb2ErrorType.fileNotFound);
+      const e = Smb2Exception('test', 2, Smb2ErrorType.fileNotFound);
       expect(e.type, Smb2ErrorType.fileNotFound);
       expect(e.errorCode, 2);
       expect(e.isConnectionError, isFalse);
@@ -340,12 +354,12 @@ void main() {
     });
 
     test('isConnectionError delegates to type', () {
-      final e = Smb2Exception('broken pipe', 32, Smb2ErrorType.connection);
+      const e = Smb2Exception('broken pipe', 32, Smb2ErrorType.connection);
       expect(e.isConnectionError, isTrue);
     });
 
     test('toString includes type', () {
-      final e = Smb2Exception('file not found', 2, Smb2ErrorType.fileNotFound);
+      const e = Smb2Exception('file not found', 2, Smb2ErrorType.fileNotFound);
       expect(e.toString(), contains('fileNotFound'));
       expect(e.toString(), contains('errno=2'));
     });

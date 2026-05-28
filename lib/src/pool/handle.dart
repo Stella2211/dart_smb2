@@ -26,11 +26,19 @@ import 'worker.dart';
 /// best-effort safety net. Rely on explicit close (or the scoped
 /// helpers) for deterministic cleanup.
 class Smb2PoolHandle {
+  /// The worker isolate that owns this open file. Swapped on reconnect.
   Worker worker;
+
+  /// The worker-local handle id. Swapped when the handle is reopened.
   int id;
+
+  /// The share-relative path this handle was opened for (used to reopen).
   final String path;
+
+  /// Whether [Smb2Pool.closeHandle] has been called for this handle.
   bool closed = false;
 
+  /// Bind a handle to its owning [worker] / [id] and arm the GC finalizer.
   Smb2PoolHandle(this.worker, this.id, this.path) {
     _finalizer.attach(this, HandleRef(worker, id), detach: this);
   }
@@ -76,8 +84,13 @@ class Smb2PoolHandle {
 /// A captured {worker, handleId} pair the finalizer can close without
 /// holding a reference to the [Smb2PoolHandle] Dart object.
 class HandleRef {
+  /// The worker isolate that owns the handle.
   final Worker worker;
+
+  /// The worker-local handle id to close.
   final int id;
+
+  /// Capture the {worker, id} pair for the finalizer.
   HandleRef(this.worker, this.id);
 }
 
@@ -92,6 +105,7 @@ class Smb2File {
   /// Total file size in bytes, captured at open time.
   final int size;
 
+  /// Wrap a pool-bound [handle] for the duration of a `withFile` callback.
   Smb2File(this._pool, this._handle, this.size);
 
   /// Read [length] bytes at [offset]. Same semantics as

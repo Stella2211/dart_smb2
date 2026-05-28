@@ -16,8 +16,7 @@ import 'pool.dart';
 import 'worker.dart';
 
 /// Internal accessor that exposes the [Worker] instances backing [pool].
-/// Used by the Phase F concurrency tests to drive fault injection and
-/// [Worker.killForTest] without making `_workers` public on
-/// [Smb2Pool].
+/// Used by the concurrency tests to drive fault injection and
+/// [Worker.killForTest] without making `_workers` public on [Smb2Pool].
 @internal
 List<Worker> poolWorkers(Smb2Pool pool) => pool.workersForTest;

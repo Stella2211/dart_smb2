@@ -136,7 +136,6 @@ Future<void> _runOrDie(List<String> argv, {String? workingDir}) async {
     argv.first,
     argv.sublist(1),
     workingDirectory: workingDir,
-    runInShell: false,
   );
   stdout.write(r.stdout);
   stderr.write(r.stderr);

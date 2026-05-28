@@ -43,7 +43,6 @@ class ConnectionNotifier extends Notifier<Smb2ConnectionState> {
   }
 
   Future<void> connect(ServerConfig config) async {
-    // If already connected to the same server, do nothing
     if (state.config == config && state.isConnected) return;
 
     state = state.copyWith(config: config, connecting: true, clearError: true, clearPool: true);

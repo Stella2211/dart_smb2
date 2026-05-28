@@ -126,11 +126,10 @@ class ServersPage extends ConsumerWidget {
     if (result == null) return;
     if (index != null) {
       final currentConfig = ref.read(connectionProvider).config;
-      // Compare by address since the config object is the same in the list
       final isCurrent = currentConfig == servers[index];
-      
+
       if (isCurrent) {
-        // Must disconnect FIRST to clear the old state reference
+        // Drop the live connection before swapping in the edited config.
         await ref.read(connectionProvider.notifier).disconnect();
       }
       servers[index] = result;
@@ -400,8 +399,8 @@ class _ServerCardState extends ConsumerState<_ServerCard> with AutomaticKeepAliv
     });
 
     try {
+      // Connect and disconnect to measure reachability and round-trip time.
       final watch = Stopwatch()..start();
-      // Using Smb2Pool.connect partially just to check availability
       final pool = await Smb2Pool.connect(
         host: widget.config.host,
         share: widget.config.shareName,

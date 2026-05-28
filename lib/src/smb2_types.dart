@@ -2,21 +2,28 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
+import 'package:meta/meta.dart';
+
 /// SMB share type constants.
 abstract class Smb2ShareType {
   /// Disk / folder share — the usual file-serving case.
   static const int diskTree = 0;
+
   /// Print-queue share.
   static const int printQueue = 1;
+
   /// Communication device share.
   static const int device = 2;
+
   /// Inter-process communication share (`IPC$`).
   static const int ipc = 3;
+
   /// Hidden-share flag, OR-ed with the base type (e.g. `C$`, `ADMIN$`).
   static const int hidden = 0x80000000;
 }
 
 /// Information about an SMB share returned by [Smb2Client.listShares].
+@immutable
 class Smb2ShareInfo {
   /// Share name (e.g. "Documents", "Music").
   final String name;
@@ -35,7 +42,15 @@ class Smb2ShareInfo {
   bool get isDisk => baseType == Smb2ShareType.diskTree;
 
   /// Whether this is a hidden share (e.g. `C$`, `IPC$`).
-  bool get isHidden => (type & Smb2ShareType.hidden) != 0 || name.endsWith('\$');
+  bool get isHidden =>
+      (type & Smb2ShareType.hidden) != 0 || name.endsWith('\$');
+
+  @override
+  bool operator ==(Object other) =>
+      other is Smb2ShareInfo && other.name == name && other.type == type;
+
+  @override
+  int get hashCode => Object.hash(name, type);
 
   @override
   String toString() => 'Smb2ShareInfo(name: $name, type: $type)';
@@ -49,18 +64,25 @@ class Smb2ShareInfo {
 enum Smb2Version {
   /// Negotiate the highest version supported by both sides (default).
   any(0),
+
   /// Any SMB 2.x dialect (2.0.2, 2.1).
   any2(2),
+
   /// Any SMB 3.x dialect (3.0, 3.0.2, 3.1.1). Required for encryption.
   any3(3),
+
   /// SMB 2.0.2.
   v202(0x0202),
+
   /// SMB 2.1.
   v210(0x0210),
+
   /// SMB 3.0.
   v300(0x0300),
+
   /// SMB 3.0.2.
   v302(0x0302),
+
   /// SMB 3.1.1 (latest, most secure).
   v311(0x0311);
 
@@ -73,14 +95,17 @@ enum Smb2Version {
 enum Smb2FileType {
   /// Regular file.
   file,
+
   /// Directory.
   directory,
+
   /// Symbolic link.
   link,
 }
 
 /// File or directory metadata returned by [Smb2Client.stat] and
 /// [Smb2Client.listDirectory].
+@immutable
 class Smb2Stat {
   /// Whether this is a file, directory, or link.
   final Smb2FileType type;
@@ -109,6 +134,17 @@ class Smb2Stat {
   bool get isFile => type == Smb2FileType.file;
 
   @override
+  bool operator ==(Object other) =>
+      other is Smb2Stat &&
+      other.type == type &&
+      other.size == size &&
+      other.modified == modified &&
+      other.created == created;
+
+  @override
+  int get hashCode => Object.hash(type, size, modified, created);
+
+  @override
   String toString() =>
       'Smb2Stat(type: $type, size: $size, modified: $modified)';
 }
@@ -117,6 +153,7 @@ class Smb2Stat {
 ///
 /// Contains the entry name and full stat metadata, including type, size,
 /// and timestamps — no additional per-entry round-trips required.
+@immutable
 class Smb2DirEntry {
   /// File or directory name (not a full path).
   final String name;
@@ -137,10 +174,19 @@ class Smb2DirEntry {
   int get size => stat.size;
 
   @override
-  String toString() => 'Smb2DirEntry(name: $name, ${stat.type.name}, $size bytes)';
+  bool operator ==(Object other) =>
+      other is Smb2DirEntry && other.name == name && other.stat == stat;
+
+  @override
+  int get hashCode => Object.hash(name, stat);
+
+  @override
+  String toString() =>
+      'Smb2DirEntry(name: $name, ${stat.type.name}, $size bytes)';
 }
 
 /// Filesystem statistics returned by [Smb2Client.statvfs].
+@immutable
 class Smb2StatVfs {
   /// Fundamental block size in bytes.
   final int blockSize;
@@ -178,6 +224,26 @@ class Smb2StatVfs {
 
   /// Available space for non-privileged users in bytes.
   int get availableSize => availableBlocks * fragmentSize;
+
+  @override
+  bool operator ==(Object other) =>
+      other is Smb2StatVfs &&
+      other.blockSize == blockSize &&
+      other.fragmentSize == fragmentSize &&
+      other.totalBlocks == totalBlocks &&
+      other.freeBlocks == freeBlocks &&
+      other.availableBlocks == availableBlocks &&
+      other.maxNameLength == maxNameLength;
+
+  @override
+  int get hashCode => Object.hash(
+        blockSize,
+        fragmentSize,
+        totalBlocks,
+        freeBlocks,
+        availableBlocks,
+        maxNameLength,
+      );
 
   @override
   String toString() =>

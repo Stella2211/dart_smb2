@@ -6,6 +6,8 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dart_smb2/dart_smb2.dart';
 import 'package:test/test.dart';
@@ -15,8 +17,10 @@ import '_fixture.dart';
 /// Integration tests for [Smb2Pool] against the local Samba container seeded
 /// by `bootstrap.dart`.
 void main() {
-  Future<Smb2Pool> connect({int workers = 2}) => poolFromCache(workers: workers);
-  Future<String> resolveTestFile(Smb2Pool pool) async => bootstrapCache.testFile;
+  Future<Smb2Pool> connect({int workers = 2}) =>
+      poolFromCache(workers: workers);
+  Future<String> resolveTestFile(Smb2Pool pool) async =>
+      bootstrapCache.testFile;
 
   // ─── Basic correctness ──────────────────────────────────────────────────
 
@@ -279,7 +283,7 @@ void main() {
         final sw = Stopwatch()..start();
         final futures = List.generate(
           requests,
-          (_) => pool.readFileRange(path, offset: 0, length: length),
+          (_) => pool.readFileRange(path, length: length),
         );
         final results = await Future.wait(futures);
         sw.stop();
@@ -344,5 +348,154 @@ void main() {
       },
       timeout: const Timeout(Duration(seconds: 120)),
     );
+  });
+
+  // ─── Scoped helpers, downloads & info surface ────────────────────────────
+
+  group('Smb2Pool — scoped helpers & info', () {
+    late Smb2Pool pool;
+    late String path;
+
+    setUp(() async {
+      pool = await connect();
+      path = await resolveTestFile(pool);
+    });
+    tearDown(() => pool.disconnect());
+
+    test('withFile reads via a scoped handle and exposes size', () async {
+      final size = await pool.fileSize(path);
+      final got = await pool.withFile(path, (file) async {
+        expect(file.size, size);
+        return file.read(length: 1024);
+      });
+      expect(got.length, 1024);
+    });
+
+    test('withFile(knownSize:) skips the fstat round-trip', () async {
+      final size = await pool.fileSize(path);
+      final headLen = await pool.withFile(
+        path,
+        (file) async {
+          expect(file.size, size);
+          final head = await file.read(length: 256);
+          return head.length;
+        },
+        knownSize: size,
+      );
+      expect(headLen, 256);
+    });
+
+    test('downloadToFile writes the whole file and reports progress', () async {
+      final size = await pool.fileSize(path);
+      final tmp = File(
+        '${Directory.systemTemp.path}/dart_smb2_dl_${DateTime.now().microsecondsSinceEpoch}.bin',
+      );
+      addTearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync();
+      });
+      var lastReceived = 0;
+      var lastTotal = -1;
+      final written = await pool.downloadToFile(
+        path,
+        tmp,
+        chunkSize: 64 * 1024,
+        onProgress: (received, total) {
+          lastReceived = received;
+          lastTotal = total;
+        },
+      );
+      expect(written, size);
+      expect(tmp.lengthSync(), size);
+      expect(lastReceived, size);
+      expect(lastTotal, size);
+    });
+
+    test('downloadToFile honours cancellation mid-stream', () async {
+      final tmp = File(
+        '${Directory.systemTemp.path}/dart_smb2_cancel_${DateTime.now().microsecondsSinceEpoch}.bin',
+      );
+      addTearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync();
+      });
+      var calls = 0;
+      await expectLater(
+        pool.downloadToFile(
+          path,
+          tmp,
+          chunkSize: 4096,
+          isCanceled: () => ++calls > 1, // cancel after the first chunk
+        ),
+        throwsA(isA<Smb2Exception>()),
+      );
+    });
+
+    test('statvfs reports plausible totals', () async {
+      final vfs = await pool.statvfs('');
+      expect(vfs.totalSize, greaterThan(0));
+      expect(vfs.freeSize, lessThanOrEqualTo(vfs.totalSize));
+    });
+
+    test('echo succeeds on a healthy pool', () async {
+      await expectLater(pool.echo(), completes);
+    });
+
+    test('readlink throws on a regular file', () async {
+      await expectLater(
+        pool.readlink(path),
+        throwsA(isA<Smb2Exception>()),
+      );
+    });
+
+    test('listShares (instance) returns the configured share', () async {
+      final shares = await pool.listShares(
+        host: bootstrapCache.host,
+        user: bootstrapCache.user,
+        password: bootstrapCache.password,
+      );
+      expect(shares.map((s) => s.name), contains(bootstrapCache.share));
+    });
+
+    test('listSharesOn (static) returns the configured share', () async {
+      final shares = await Smb2Pool.listSharesOn(
+        host: bootstrapCache.host,
+        user: bootstrapCache.user,
+        password: bootstrapCache.password,
+      );
+      expect(shares.map((s) => s.name), contains(bootstrapCache.share));
+    });
+  });
+
+  // ─── Write-handle helpers (fsync / ftruncate over the worker) ────────────
+
+  group('Smb2Pool — write-handle helpers', () {
+    late Smb2Pool pool;
+    const path = 'pool_handle_helpers.bin';
+
+    setUp(() async => pool = await connect());
+    tearDown(() async {
+      try {
+        await pool.deleteFile(path);
+      } catch (_) {}
+      await pool.disconnect();
+    });
+
+    test('openFileWrite + writeToHandle + fsyncHandle + ftruncateHandle',
+        () async {
+      final handle = await pool.openFileWrite(path);
+      try {
+        await pool.writeToHandle(
+          handle,
+          Uint8List.fromList([10, 20, 30, 40, 50, 60]),
+        );
+        await pool.fsyncHandle(handle);
+        expect(await pool.fileSize(path), 6);
+
+        await pool.ftruncateHandle(handle, 3);
+        expect(await pool.fileSize(path), 3);
+      } finally {
+        await pool.closeHandle(handle);
+      }
+      expect(await pool.readFile(path), orderedEquals([10, 20, 30]));
+    });
   });
 }

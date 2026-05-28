@@ -139,7 +139,6 @@ enum Smb2ErrorType {
 
         // EHOSTUNREACH — Linux
         113 => Smb2ErrorType.connection,
-
         _ => Smb2ErrorType.unknown,
       };
 
@@ -148,9 +147,10 @@ enum Smb2ErrorType {
   /// libsmb2's transport-level failure paths (`POLLHUP`, `POLLERR`,
   /// `Read from socket failed`, `Failed to open smb2 socket`, etc.) call
   /// `smb2_set_error()` without updating the context's NT status. As a result
-  /// `smb2w_get_errno()` returns 0 — or worse, a *stale* errno from an earlier
-  /// operation — and pure errno-based classification misses these as
-  /// connection failures, breaking auto-reconnect.
+  /// `nterror_to_errno(smb2_get_nterror(ctx))` returns 0 — or worse, a
+  /// *stale* errno from an earlier operation — and pure errno-based
+  /// classification misses these as connection failures, breaking
+  /// auto-reconnect.
   ///
   /// This classifier inspects the freshest signal — the message libsmb2 just
   /// produced — and recognises the substrings emitted by the C library's
@@ -176,20 +176,20 @@ enum Smb2ErrorType {
     // does not update the NT status), so errno-based classification cannot
     // catch them.
     const connectionMarkers = <String>[
-      'pollhup',                       // socket.c POLLHUP path
-      'pollerr',                       // socket.c POLLERR path
-      'socket error',                  // socket.c smb2_service variants
-      'read from socket failed',       // socket.c read paths (both variants)
-      'error when writing to',         // socket.c write path
-      'remote closed connection',      // socket.c read EOF
-      'not connected',                 // socket.c / sync.c "Not Connected to Server"
-      'socket connect failed',         // libsmb2.c connect path
-      'failed to open smb2 socket',    // socket.c socket() failure
-      'connect failed with errno',     // socket.c connect() failure
-      'alreeady disconnected',         // libsmb2.c (sic — upstream typo, kept verbatim)
-      'already disconnected',          // future-proof if upstream fixes the typo
-      'no connected tree-id',          // pdu.c — server tore down the session (idle teardown)
-      'no tree-id connected',          // pdu.c — same condition, different code path
+      'pollhup', // socket.c POLLHUP path
+      'pollerr', // socket.c POLLERR path
+      'socket error', // socket.c smb2_service variants
+      'read from socket failed', // socket.c read paths (both variants)
+      'error when writing to', // socket.c write path
+      'remote closed connection', // socket.c read EOF
+      'not connected', // socket.c / sync.c "Not Connected to Server"
+      'socket connect failed', // libsmb2.c connect path
+      'failed to open smb2 socket', // socket.c socket() failure
+      'connect failed with errno', // socket.c connect() failure
+      'alreeady disconnected', // libsmb2.c (sic — upstream typo, kept verbatim)
+      'already disconnected', // future-proof if upstream fixes the typo
+      'no connected tree-id', // pdu.c — server tore down the session (idle teardown)
+      'no tree-id connected', // pdu.c — same condition, different code path
     ];
     for (final marker in connectionMarkers) {
       if (m.contains(marker)) return Smb2ErrorType.connection;

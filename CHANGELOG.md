@@ -1,26 +1,20 @@
-## [0.1.0] - WIP
-
-### Removed
-- The optional `path` argument on `Smb2Client.open()` and the `libPath:` parameter on `Smb2Pool.connect()` / `Smb2Pool.listSharesOn()`. The native library is resolved automatically via the Flutter plugin mechanism — callers no longer pick the path.
-- The `Smb2Client(DynamicLibrary)` factory constructor.
+## [0.1.0] - 28-05-2026
 
 ### Changed
-- `Smb2Pool.connect()` now spawns workers sequentially. Startup is slightly slower (~100 ms instead of ~25 ms for 4 workers) but the pool is no longer affected by an internal libsmb2 race that could corrupt state when multiple isolates initialised the library in parallel.
+- General refactor of the code.
+- Rewrote the FFI layer with ffigen and simplified the internals; temporary native memory is now freed automatically.
+- `Smb2Client.open()` no longer takes a path; the native library already loads automatically.
+
+### Removed
+- `CachedSmb2Pool` and built-in caching. The pool no longer caches `stat` / `listDirectory` — cache at your own layer if you need to.
 
 ### Fixed
-- `listDirectory` and `listShares` could read garbage on 32-bit ARM Android (`armeabi-v7a`) because of a wrong pointer-size assumption in the underlying struct layout. Both paths are now driven by direct libsmb2 calls with platform-correct alignment.
-- `readlink` could walk past the end of its own buffer when the symlink target was 4 KiB or longer. Returned strings are now guaranteed to be NUL-terminated.
-- `stat`, `listDirectory`, `readFile`, `readFileRange`, `openFileHandle`, `fileSize`, `writeFile`, `writeFileRange`, `mkdir`, `rmdir`, `rename`, `truncate`, `deleteFile` and `openFileHandleWrite` now reject paths containing embedded NUL bytes with `Smb2Exception(invalidParam)`. Previously a path like `'foo\u0000bar'` was silently truncated by the C layer, which could let user-controlled prefixes escape an intended suffix.
-- `Smb2Pool` operations no longer hang forever when their backing worker isolate dies mid-call (network drop, OS kill, …). The pending Future now resolves with a connection-typed exception within milliseconds instead of waiting on a reply that never arrives.
-- Parallel operations failing on the same worker now share a single reconnect attempt instead of each spawning its own replacement isolate. Previously a burst of concurrent failures could leak N − 1 worker isolates and route some callers to a dead worker.
-- `streamFile` now reports a clean `Smb2Exception(io)` when the server returns zero bytes mid-stream (file truncated by another client during the download). Previously the stream would silently close short, with the destination file smaller than the announced size and no error to detect it.
-- `closeHandle` called concurrently with a failing read/write no longer leaves an orphan file handle open on the reconnected worker.
-- `CachedSmb2Pool` now invalidates the parent directory listing on both `/` and `\` separators. Paths using the SMB-native backslash were previously kept in cache after a write/delete.
-
-### Build
-- Internal FFI layer migrated to ffigen — generated bindings live in `lib/src/ffi/libsmb2_bindings.dart`. Public API unchanged.
-- Pool internals split across `lib/src/pool/` (`pool.dart`, `worker.dart`, `worker_main.dart`, `handle.dart`, `messages.dart`). No public API impact.
-- Added a deterministic concurrency regression suite under `test/integration/pool_concurrency_test.dart`, covering worker death, parallel-failure reconnect, mid-stream truncation, and close-vs-retry races.
+- `listDirectory` and `listShares` now work correctly on 32-bit Android.
+- `readlink` handles long symlink targets correctly.
+- File paths containing NUL characters are rejected instead of being silently cut short.
+- Pool operations no longer hang if a worker dies mid-request — they fail fast and reconnect.
+- Interrupted downloads now raise an error instead of finishing short and silent.
+- Several handle and reconnect edge cases under heavy concurrency are handled cleanly.
 
 ## [0.0.8] - 25-05-2026
 

@@ -72,9 +72,8 @@ class _TreeFolderState extends ConsumerState<_TreeFolder> {
 
     try {
       final list = await pool.listDirectory(widget.path);
-      // Remove . and ..
       final filtered = list.where((e) => e.name != '.' && e.name != '..').toList();
-      // Sort: folders first, then files
+      // Folders first, then files, each alphabetical.
       filtered.sort((a, b) {
         if (a.isDirectory && !b.isDirectory) return -1;
         if (!a.isDirectory && b.isDirectory) return 1;
@@ -207,7 +206,7 @@ class _TreeFile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
       child: Row(
         children: [
-          const SizedBox(width: 20), // Placeholder for arrow
+          const SizedBox(width: 20), // Aligns with the folder expand arrow.
           const Icon(Icons.insert_drive_file_outlined, size: 18, color: Colors.grey),
           const SizedBox(width: 8),
           Expanded(

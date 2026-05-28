@@ -12,6 +12,7 @@
 library;
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:dart_smb2/dart_smb2.dart';
 // ignore: implementation_imports — needs poolWorkers() to drive
@@ -26,8 +27,7 @@ void main() {
       poolFromCache(workers: workers);
 
   group('H3 — single-flight reconnect under parallel failures', () {
-    test('5 parallel ops failing together reconnect the worker once',
-        () async {
+    test('5 parallel ops failing together reconnect the worker once', () async {
       final pool = await connect();
       addTearDown(pool.disconnect);
       final initialWorker = poolWorkers(pool).single;
@@ -51,8 +51,11 @@ void main() {
       // never observed, and leaked N-1 isolates.
       final liveWorkers = poolWorkers(pool);
       expect(liveWorkers.length, 1);
-      expect(identical(liveWorkers.single, initialWorker), isFalse,
-          reason: 'Reconnect should have replaced the failing worker');
+      expect(
+        identical(liveWorkers.single, initialWorker),
+        isFalse,
+        reason: 'Reconnect should have replaced the failing worker',
+      );
       // The original worker is fully closed.
       expect(initialWorker.isDead, isTrue);
     });
@@ -83,7 +86,8 @@ void main() {
 
       // First chunk: real read. After it lands, install the injection
       // before we pull the second chunk.
-      final iterator = StreamIterator(pool.streamFile(path, chunkSize: chunkSize));
+      final iterator =
+          StreamIterator(pool.streamFile(path, chunkSize: chunkSize));
       try {
         expect(await iterator.moveNext(), isTrue);
         expect(iterator.current.length, equals(chunkSize));
@@ -223,6 +227,121 @@ void main() {
       for (final o in outcomes) {
         expect(o, isNot(equals('HUNG')));
       }
+    });
+  });
+
+  // Auto-reconnect: inject a single connection error, then assert that each
+  // retry-wrapped public operation transparently reconnects the worker and
+  // succeeds. This exercises the happy-path recovery branches in
+  // _sendWithRetry / _sendWriteWithRetry / openFile / openFileWrite and the
+  // handle reopen paths (_reopenHandle / _reopenWriteHandle +
+  // refreshFinalizer) that the H3/M4 tests above only touch on their failure
+  // edges.
+  group('auto-reconnect recovery for retry-wrapped operations', () {
+    final seed = bootstrapCache.testFile;
+    final data = Uint8List.fromList(const [1, 2, 3, 4, 5, 6]);
+
+    Future<void> failNext(Smb2Pool pool) => poolWorkers(pool).single.send<bool>(
+          '__inject_fail_next_n',
+          const {'count': 1},
+        );
+
+    test('stat recovers via _sendWithRetry', () async {
+      final pool = await connect();
+      addTearDown(pool.disconnect);
+      await failNext(pool);
+      final info = await pool.stat(seed);
+      expect(info.size, greaterThan(0));
+    });
+
+    test('listDirectory recovers via _sendWithRetry', () async {
+      final pool = await connect();
+      addTearDown(pool.disconnect);
+      await failNext(pool);
+      expect(await pool.listDirectory(''), isNotEmpty);
+    });
+
+    test('writeFile recovers via _sendWriteWithRetry', () async {
+      final pool = await connect();
+      const path = 'reconnect_writefile.bin';
+      addTearDown(() async {
+        try {
+          await pool.deleteFile(path);
+        } catch (_) {}
+        await pool.disconnect();
+      });
+      await failNext(pool);
+      await pool.writeFile(path, data);
+      expect(await pool.readFile(path), orderedEquals(data));
+    });
+
+    test('openFile recovers on its retry path', () async {
+      final pool = await connect();
+      addTearDown(pool.disconnect);
+      await failNext(pool);
+      final handle = await pool.openFile(seed);
+      addTearDown(() => pool.closeHandle(handle));
+      final bytes = await pool.readFromHandle(handle, length: 128);
+      expect(bytes.length, 128);
+    });
+
+    test('readFromHandle recovers by reopening the handle', () async {
+      final pool = await connect();
+      addTearDown(pool.disconnect);
+      final handle = await pool.openFile(seed); // open first, THEN inject
+      addTearDown(() => pool.closeHandle(handle));
+      await failNext(pool);
+      final bytes = await pool.readFromHandle(handle, length: 256);
+      expect(bytes.length, 256);
+    });
+
+    test('openFileWrite + writeToHandle recover by reopening', () async {
+      final pool = await connect();
+      const path = 'reconnect_writehandle.bin';
+      addTearDown(() async {
+        try {
+          await pool.deleteFile(path);
+        } catch (_) {}
+        await pool.disconnect();
+      });
+      final handle = await pool.openFileWrite(path); // open first
+      await failNext(pool);
+      await pool.writeToHandle(handle, data); // reopens + retries
+      await pool.closeHandle(handle);
+      expect(await pool.readFile(path), orderedEquals(data));
+    });
+
+    test('fsyncHandle recovers by reopening the handle', () async {
+      final pool = await connect();
+      const path = 'reconnect_fsync.bin';
+      addTearDown(() async {
+        try {
+          await pool.deleteFile(path);
+        } catch (_) {}
+        await pool.disconnect();
+      });
+      final handle = await pool.openFileWrite(path);
+      await pool.writeToHandle(handle, data);
+      await failNext(pool);
+      await pool.fsyncHandle(handle); // must reopen + retry without throwing
+      await pool.closeHandle(handle);
+    });
+
+    test('ftruncateHandle recovers by reopening the handle', () async {
+      final pool = await connect();
+      const path = 'reconnect_ftruncate.bin';
+      addTearDown(() async {
+        try {
+          await pool.deleteFile(path);
+        } catch (_) {}
+        await pool.disconnect();
+      });
+      final handle = await pool.openFileWrite(path);
+      await pool.writeToHandle(handle, data);
+      await failNext(pool);
+      await pool.ftruncateHandle(handle, 3); // reopen + retry
+      await pool.closeHandle(handle);
+      expect(await pool.fileSize(path), 3);
     });
   });
 }

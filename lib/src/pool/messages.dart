@@ -24,13 +24,37 @@ import '../smb2_types.dart';
 /// specific `.dylib` / `.so` checkout. Production callers leave it at
 /// `null` and the field is dead weight.
 class ConnectParams {
-  final String host, share;
-  final String? user, password, domain;
+  /// Target server host or IP.
+  final String host;
+
+  /// Share name to connect to.
+  final String share;
+
+  /// Optional username (empty/null = guest).
+  final String? user;
+
+  /// Optional password.
+  final String? password;
+
+  /// Optional NT domain / workgroup.
+  final String? domain;
+
+  /// Connection timeout in seconds.
   final int timeoutSeconds;
-  final bool seal, signing;
+
+  /// Whether to require SMB3 encryption (seal).
+  final bool seal;
+
+  /// Whether to require SMB signing.
+  final bool signing;
+
+  /// SMB dialect to negotiate.
   final Smb2Version version;
+
+  /// Test-only libsmb2 path override propagated across the isolate boundary.
   final String? testLibOverride;
 
+  /// Build the connection parameters reused for every (re)spawn.
   const ConnectParams({
     required this.host,
     required this.share,
@@ -49,14 +73,40 @@ class ConnectParams {
 /// the [sendPort] the worker should reply to with its own command port,
 /// plus all the connection parameters.
 class InitMsg {
+  /// Port the worker replies to with its command [SendPort] (or an error).
   final SendPort sendPort;
-  final String host, share;
-  final String? user, password, domain;
+
+  /// Target server host or IP.
+  final String host;
+
+  /// Share name to connect to.
+  final String share;
+
+  /// Optional username (empty/null = guest).
+  final String? user;
+
+  /// Optional password.
+  final String? password;
+
+  /// Optional NT domain / workgroup.
+  final String? domain;
+
+  /// Connection timeout in seconds.
   final int timeoutSeconds;
-  final bool seal, signing;
+
+  /// Whether to require SMB3 encryption (seal).
+  final bool seal;
+
+  /// Whether to require SMB signing.
+  final bool signing;
+
+  /// SMB dialect to negotiate.
   final Smb2Version version;
+
+  /// Test-only libsmb2 path override propagated across the isolate boundary.
   final String? testLibOverride;
 
+  /// Build the bootstrap message handed to a freshly-spawned worker.
   InitMsg({
     required this.sendPort,
     required this.host,
@@ -79,8 +129,15 @@ class InitMsg {
 /// serialises it as the enum's index and the main isolate reconstructs
 /// the typed exception on receipt.
 class ErrorMsg {
+  /// Human-readable error description.
   final String message;
+
+  /// Optional native errno code.
   final int? errorCode;
+
+  /// [Smb2ErrorType] index, reconstructed into the enum on receipt.
   final int? errorTypeIndex;
+
+  /// Build a wire-format error from a message, optional errno, and type index.
   ErrorMsg(this.message, [this.errorCode, this.errorTypeIndex]);
 }

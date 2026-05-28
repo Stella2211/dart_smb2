@@ -41,6 +41,7 @@ export 'handle.dart' show Smb2PoolHandle, Smb2File;
 class Smb2Pool {
   final List<Worker> _workers;
   final ConnectParams _params;
+
   int _next = 0;
   bool _closed = false;
 
@@ -52,11 +53,9 @@ class Smb2Pool {
   /// All isolates share the same credentials and target share.
   ///
   /// Workers are spawned **sequentially** — each spawn is `await`ed
-  /// before the next starts. This is the Dart-side replacement for the
-  /// legacy C wrapper's pthread mutex around `smb2_init_context` /
-  /// `smb2_destroy_context`: libsmb2 mutates a global `active_contexts`
-  /// list (init.c) without internal locking, and concurrent calls from
-  /// multiple OS threads (= multiple Dart isolates) race on that list.
+  /// before the next starts. libsmb2 mutates a global `active_contexts`
+  /// list (init.c) without internal locking, so concurrent
+  /// `smb2_init_context` calls from multiple isolates would race on it.
   /// Sequencing the spawns guarantees that at most one isolate is inside
   /// `smb2_init_context` at any given moment within this pool.
   ///
@@ -161,31 +160,32 @@ class Smb2Pool {
     String? user,
     String? password,
     String? domain,
-  }) => _nextWorker.send('listShares', {
-    'host': host,
-    'user': user,
-    'password': password,
-    'domain': domain,
-  });
+  }) =>
+      _nextWorker.send('listShares', {
+        'host': host,
+        'user': user,
+        'password': password,
+        'domain': domain,
+      });
 
   /// Read [length] bytes from a file at [offset].
   Future<Uint8List> readFileRange(
     String path, {
     int offset = 0,
     required int length,
-  }) => _sendWithRetry('readRange', {
-    'path': path,
-    'offset': offset,
-    'length': length,
-  });
+  }) =>
+      _sendWithRetry('readRange', {
+        'path': path,
+        'offset': offset,
+        'length': length,
+      });
 
   /// Read an entire file into memory.
   Future<Uint8List> readFile(String path) =>
       _sendWithRetry('readFile', {'path': path});
 
   /// Get file metadata.
-  Future<Smb2Stat> stat(String path) =>
-      _sendWithRetry('stat', {'path': path});
+  Future<Smb2Stat> stat(String path) => _sendWithRetry('stat', {'path': path});
 
   /// Get file size in bytes.
   Future<int> fileSize(String path) =>
@@ -259,10 +259,11 @@ class Smb2Pool {
     String path,
     Uint8List data, {
     int offset = 0,
-  }) => _sendWriteWithRetry('writeRange', data, {
-    'path': path,
-    'offset': offset,
-  });
+  }) =>
+      _sendWriteWithRetry('writeRange', data, {
+        'path': path,
+        'offset': offset,
+      });
 
   /// Write [data] to a file, creating or truncating it.
   Future<void> writeFile(String path, Uint8List data) =>
@@ -275,12 +276,10 @@ class Smb2Pool {
       _sendWithRetry('deleteFile', {'path': path});
 
   /// Create a directory.
-  Future<void> mkdir(String path) =>
-      _sendWithRetry('mkdir', {'path': path});
+  Future<void> mkdir(String path) => _sendWithRetry('mkdir', {'path': path});
 
   /// Delete an empty directory.
-  Future<void> rmdir(String path) =>
-      _sendWithRetry('rmdir', {'path': path});
+  Future<void> rmdir(String path) => _sendWithRetry('rmdir', {'path': path});
 
   /// Rename or move a file or directory.
   Future<void> rename(String oldPath, String newPath) =>
@@ -422,8 +421,7 @@ class Smb2Pool {
   /// reconnect await, after the new open), we throw a typed
   /// connection error and best-effort close the just-opened handle.
   /// Without this, a parallel `closeHandle(h) + readFromHandle(h)`
-  /// could result in the read path reopening a fresh handle that
-  /// nobody owns. Fix M4 from the 0.1.0 code review.
+  /// could leave the read path reopening a fresh handle that nobody owns.
   Future<void> _reopenWriteHandle(Smb2PoolHandle handle) async {
     _throwIfClosed(handle);
     handle.worker = await _reconnectWorker(handle.worker);
@@ -442,7 +440,7 @@ class Smb2Pool {
 
   /// Reconnect the worker and reopen the file, updating the handle in-place.
   ///
-  /// See [_reopenWriteHandle] for the M4 fix details.
+  /// See [_reopenWriteHandle] for how a concurrent close is handled.
   Future<void> _reopenHandle(Smb2PoolHandle handle) async {
     _throwIfClosed(handle);
     handle.worker = await _reconnectWorker(handle.worker);
@@ -534,7 +532,9 @@ class Smb2Pool {
       var offset = 0;
       while (offset < size) {
         if (isCanceled?.call() ?? false) {
-          throw const Smb2Exception('Read canceled', null, Smb2ErrorType.unknown);
+          throw const Smb2Exception(
+            'Read canceled',
+          );
         }
         final remaining = size - offset;
         final toRead = remaining < chunkSize ? remaining : chunkSize;
@@ -543,13 +543,9 @@ class Smb2Pool {
           offset: offset,
           length: toRead,
         );
-        // Fix M2: distinguish a legitimate end-of-file from a server
-        // that returned 0 bytes mid-stream (e.g. the file was truncated
-        // by another client between `open` and this `pread`). The old
-        // code silently `break`'d, producing a download shorter than
-        // `size` with no error — callers could not tell success from
-        // truncation. We now surface the truncation as a typed
-        // exception so callers can retry or report.
+        // A read of 0 bytes before reaching [size] means the file was
+        // truncated by another client mid-stream — surface it as an error
+        // instead of silently returning a short, incomplete result.
         if (chunk.isEmpty) {
           throw Smb2Exception(
             'File shrank mid-stream: expected $size bytes, got $offset',
@@ -697,11 +693,9 @@ class Smb2Pool {
   /// the same worker fail share one reconnect attempt instead of each
   /// racing to spawn its own replacement.
   ///
-  /// Fix H3 from the 0.1.0 code review. Without this, N parallel
-  /// `_sendWithRetry` calls on the same worker would each call
-  /// `Worker.spawn` and `_workers[idx] = newWorker`, leaking N-1
-  /// orphan isolates and leaving the most recent winner pointing at a
-  /// worker that some of the original callers never see.
+  /// Without this coalescing, N parallel calls failing on the same worker
+  /// would each spawn a replacement — leaking N-1 orphan isolates and
+  /// leaving some callers pointing at a worker they never see.
   final Map<Worker, Future<Worker>> _reconnectsInFlight = {};
 
   /// Closes [worker], spawns a fresh replacement at the same slot, and returns it.

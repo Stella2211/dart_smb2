@@ -19,7 +19,11 @@ class Smb2Exception implements Exception {
   final Smb2ErrorType type;
 
   /// Build a [Smb2Exception] from a message, optional errno, and category.
-  const Smb2Exception(this.message, [this.errorCode, this.type = Smb2ErrorType.unknown]);
+  const Smb2Exception(
+    this.message, [
+    this.errorCode,
+    this.type = Smb2ErrorType.unknown,
+  ]);
 
   /// Whether this error indicates a broken or timed-out connection
   /// that may succeed on retry.

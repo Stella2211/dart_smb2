@@ -6,7 +6,7 @@
 [![](https://img.shields.io/badge/libsmb2-v6.1.0-orange.svg?style=for-the-badge)](https://github.com/sahlberg/libsmb2)
 [![](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg?style=for-the-badge)](LICENSE)
 [![](https://img.shields.io/github/stars/ales-drnz/dart_smb2?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ales-drnz/dart_smb2)
-[![](https://img.shields.io/discord/1491115396663869470?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/g2Qf4Mq9MP)
+[![](https://img.shields.io/discord/1485588004029333516?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/g2Qf4Mq9MP)
 [![](https://img.shields.io/badge/Patreon-F96854?style=for-the-badge&logo=patreon&logoColor=white)](https://www.patreon.com/cw/ales_drnz)
 [![](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/ales.drnz)
 
@@ -25,7 +25,7 @@ Add `dart_smb2` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dart_smb2: ^0.0.8
+  dart_smb2: ^0.1.0
 ```
 
 ---
@@ -53,9 +53,8 @@ dependencies:
 
     * [1.1 Sync Client](#11-sync-client)
     * [1.2 Worker Pool](#12-worker-pool)
-    * [1.3 Cached Pool](#13-cached-pool)
-    * [1.4 Disconnecting](#14-disconnecting)
-    * [1.5 Security Options](#15-security-options)
+    * [1.3 Disconnecting](#13-disconnecting)
+    * [1.4 Security Options](#14-security-options)
 
     </details>
 
@@ -119,14 +118,10 @@ dependencies:
     </details>
 
     <details>
-    <summary><a href="#9-caching"><b>9. Caching</b></a></summary>
-    </details>
+    <summary><a href="#9-error-handling"><b>9. Error Handling</b></a></summary>
 
-    <details>
-    <summary><a href="#10-error-handling"><b>10. Error Handling</b></a></summary>
-
-    * [10.1 Smb2Exception](#101-smb2exception)
-    * [10.2 Error Types](#102-error-types)
+    * [9.1 Smb2Exception](#91-smb2exception)
+    * [9.2 Error Types](#92-error-types)
 
     </details>
 
@@ -186,7 +181,7 @@ The following images demonstrate the example app included in the `example/` dire
 </tr>
 <tr>
 <td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/layers.png" width="32"></td>
-<td valign="middle"><b>Cached reads</b><br><code>CachedSmb2Pool</code> wraps the pool with a TTL cache for <code>stat</code> and <code>listDirectory</code> calls, with automatic invalidation on writes.</td>
+<td valign="middle"><b>Auto-reconnect</b><br>dropped connections are detected and re-established transparently — the failed operation is reopened and retried without surfacing the disruption to your code.</td>
 <td valign="middle"><img src="https://raw.githubusercontent.com/ales-drnz/svg-icons/main/png/triangle-alert.png" width="32"></td>
 <td valign="middle"><b>Semantic errors</b><br>one <code>Smb2Exception</code> hierarchy with <code>Smb2ErrorType</code> enum (<code>auth</code>, <code>fileNotFound</code>, <code>connection</code>, <code>alreadyExists</code>, …), never raw NTSTATUS codes in your code.</td>
 </tr>
@@ -259,17 +254,16 @@ void main() async {
 
 ### 1. Connection & Lifecycle
 
-`dart_smb2` offers three layers of abstraction. Pick the highest one that fits your use case — `Smb2Pool` is the recommended default.
+`dart_smb2` offers two layers of abstraction. Pick the one that fits your use case — `Smb2Pool` is the recommended default.
 
 | Layer | Class | Best for |
 | :--- | :--- | :--- |
 | Sync FFI | `Smb2Client` | Scripts, background isolates, maximum control |
 | Worker Pool | `Smb2Pool` | **Default**. Async, multi-worker, auto-reconnect, scope-based file helpers |
-| Cached Pool | `CachedSmb2Pool` | Repeated `stat`/`listDirectory` calls with TTL |
 
 #### 1.1 Sync Client
 
-The core layer. All operations are blocking — run it in an isolate to avoid blocking the UI thread. The bundled native library loads automatically on every supported platform — no path configuration required.
+The core layer. All operations are synchronous (they wait for the result before returning), so run it in a background isolate to keep your app responsive. The bundled native library loads automatically on every supported platform — no path configuration required.
 
 ```dart
 final client = Smb2Client.open();
@@ -310,46 +304,16 @@ final entries = await pool.listDirectory('');
 await pool.disconnect();
 ```
 
-#### 1.3 Cached Pool
-
-Wraps an `Smb2Pool` with an in-memory TTL cache for `stat` and `listDirectory`. All other operations pass through directly.
-
-```dart
-final pool = await Smb2Pool.connect(
-  host: '192.168.1.100',
-  share: 'Files',
-  user: 'user',
-  password: 'pass',
-);
-
-final cached = CachedSmb2Pool(pool, ttl: Duration(seconds: 30));
-
-// First call hits the network
-final entries = await cached.listDirectory('Documents/Projects');
-
-// Second call within 30s returns from cache
-final same = await cached.listDirectory('Documents/Projects');
-
-// Manually invalidate
-cached.invalidate('Documents/Projects');
-
-// Clear everything
-cached.clearCache();
-
-await cached.disconnect();
-```
-
-#### 1.4 Disconnecting
+#### 1.3 Disconnecting
 
 Always disconnect when done. This releases the native SMB2 context and kills any spawned isolates.
 
 ```dart
 client.disconnect();          // Smb2Client (sync)
 await pool.disconnect();      // Smb2Pool
-await cached.disconnect();    // CachedSmb2Pool
 ```
 
-#### 1.5 Security Options
+#### 1.4 Security Options
 
 All `connect` methods accept optional security parameters:
 
@@ -433,7 +397,7 @@ Each entry is an `Smb2DirEntry`:
 
 #### 4.1 Stat
 
-Returns file metadata via an SMB2 compound request (Create + QueryInfo + Close in a single round-trip).
+Returns file metadata in a single, efficient network round-trip.
 
 ```dart
 final info = await pool.stat('Documents/report.pdf');
@@ -588,7 +552,7 @@ for (final chunk in client.readFileChunked('data/large_file.bin', chunkSize: 102
 }
 ```
 
-**Async (Smb2Pool / CachedSmb2Pool):**
+**Async (Smb2Pool):**
 
 ```dart
 bool canceled = false;
@@ -692,7 +656,7 @@ Creates or overwrites a file with the given data. The file is truncated before w
 client.writeFile('Documents/notes.txt', Uint8List.fromList('Hello!'.codeUnits));
 ```
 
-**Async (Smb2Pool / CachedSmb2Pool):**
+**Async (Smb2Pool):**
 
 ```dart
 await pool.writeFile('Documents/notes.txt', Uint8List.fromList('Hello!'.codeUnits));
@@ -709,7 +673,7 @@ Writes data at a specific offset without truncating the file. Creates the file i
 client.writeFileRange('data/file.bin', myBytes, offset: 100);
 ```
 
-**Async (Smb2Pool / CachedSmb2Pool):**
+**Async (Smb2Pool):**
 
 ```dart
 await pool.writeFileRange('data/file.bin', myBytes, offset: 100);
@@ -717,7 +681,7 @@ await pool.writeFileRange('data/file.bin', myBytes, offset: 100);
 
 #### 6.3 Streaming Write (Chunked)
 
-Writes data from chunks without loading the entire file into RAM. Uses a sync `Iterable` on `Smb2Client` and an async `Stream` on `Smb2Pool` and `CachedSmb2Pool`.
+Writes data from chunks without loading the entire file into RAM. Uses a sync `Iterable` on `Smb2Client` and an async `Stream` on `Smb2Pool`.
 
 **Sync (Smb2Client):**
 
@@ -725,7 +689,7 @@ Writes data from chunks without loading the entire file into RAM. Uses a sync `I
 client.writeFileChunked('data/large_file.bin', generateChunks());
 ```
 
-**Async (Smb2Pool / CachedSmb2Pool):**
+**Async (Smb2Pool):**
 
 ```dart
 final fileStream = File('local_file.bin').openRead().cast<Uint8List>();
@@ -895,16 +859,6 @@ final shares = await Smb2Pool.listSharesOn(
 );
 ```
 
-**CachedSmb2Pool (delegates to the underlying pool, not cached):**
-
-```dart
-final shares = await cached.listShares(
-  host: '192.168.1.100',
-  user: 'user',
-  password: 'pass',
-);
-```
-
 Each share is an `Smb2ShareInfo` with:
 
 | Property | Type | Description |
@@ -916,54 +870,9 @@ Each share is an `Smb2ShareInfo` with:
 
 ---
 
-### 9. Caching
+### 9. Error Handling
 
-`CachedSmb2Pool` wraps an `Smb2Pool` with a TTL-based in-memory cache. Only `stat` and `listDirectory` results are cached — all other operations always hit the network. Write operations automatically invalidate the cache for the affected path and its parent directory.
-
-```dart
-final cached = CachedSmb2Pool(pool, ttl: Duration(seconds: 30));
-```
-
-| Method | Cached | Auto-invalidates |
-| :--- | :---: | :---: |
-| `stat()` | ✅ | — |
-| `listDirectory()` | ✅ | — |
-| `readFile()` | ❌ | — |
-| `readFileRange()` | ❌ | — |
-| `streamFile()` | ❌ | — |
-| `withFile()` | ❌ | — |
-| `downloadToFile()` | ❌ | — |
-| `fileSize()` | ❌ | — |
-| `openFile()` / `openFileWithSize()` | ❌ | — |
-| `readFromHandle()` / `closeHandle()` | ❌ | — |
-| `exists()` | ✅ (via stat) | — |
-| `listShares()` | ❌ | — |
-| `writeFile()` | ❌ | ✅ path + parent |
-| `writeFileRange()` | ❌ | ✅ path + parent |
-| `deleteFile()` | ❌ | ✅ path + parent |
-| `mkdir()` | ❌ | ✅ parent |
-| `rmdir()` | ❌ | ✅ path + parent |
-| `rename()` | ❌ | ✅ old + new paths |
-| `truncate()` | ❌ | ✅ path + parent |
-| `streamWrite()` | ❌ | ✅ path + parent |
-| `openFileWrite()` / `writeToHandle()` | ❌ | — |
-| `echo()` | ❌ | — |
-| `statvfs()` | ❌ | — |
-| `readlink()` | ❌ | — |
-| `fsyncHandle()` / `ftruncateHandle()` | ❌ | — |
-
-**Invalidation:**
-
-```dart
-cached.invalidate('Documents/Projects');  // remove one path from cache
-cached.clearCache();                      // clear all cached data
-```
-
----
-
-### 10. Error Handling
-
-#### 10.1 Smb2Exception
+#### 9.1 Smb2Exception
 
 All errors throw `Smb2Exception` with a message, an optional POSIX errno, and a semantic error type.
 
@@ -978,7 +887,7 @@ try {
 }
 ```
 
-#### 10.2 Error Types
+#### 9.2 Error Types
 
 `Smb2ErrorType` maps native errno values to semantic categories:
 

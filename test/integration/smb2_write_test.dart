@@ -113,7 +113,7 @@ void main() {
       final handle = client.openFileHandleWrite('$testDir/write_test.txt');
       final part1 = Uint8List.fromList('AB'.codeUnits);
       final part2 = Uint8List.fromList('CD'.codeUnits);
-      client.writeHandle(handle, part1, offset: 0);
+      client.writeHandle(handle, part1);
       client.writeHandle(handle, part2, offset: 2);
       client.closeHandle(handle);
 
@@ -227,12 +227,12 @@ void main() {
     late Smb2Pool pool;
 
     Future<Smb2Pool> connectPool({int workers = 2}) => Smb2Pool.connect(
-      host: host,
-      share: share,
-      user: user,
-      password: pass,
-      workers: workers,
-    );
+          host: host,
+          share: share,
+          user: user,
+          password: pass,
+          workers: workers,
+        );
 
     setUp(() async {
       pool = await connectPool();
@@ -301,7 +301,6 @@ void main() {
       await pool.writeToHandle(
         handle,
         Uint8List.fromList('Hello'.codeUnits),
-        offset: 0,
       );
       await pool.writeToHandle(
         handle,
@@ -378,8 +377,8 @@ void main() {
 
   // ── L1 fix from the 0.1.0 code review, write-side coverage.
   //
-  // After Phase C of the ffigen migration, the write/management paths
-  // also flow through Smb2Native, so the embedded-NUL guard applies
+  // The write/management paths route every path through Smb2Client's
+  // NUL-rejecting `_path` helper, so the embedded-NUL guard applies
   // uniformly. These tests fail-fast BEFORE any FFI call — they don't
   // touch the share state, so they're safe to leave on top of the
   // existing fixtures without a setUp/tearDown of their own.
