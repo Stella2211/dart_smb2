@@ -33,8 +33,14 @@ class Worker {
 
   bool _dead = false;
 
+  /// Sentinel returned by the `initPort` vs `exitPort` race in [spawn]
+  /// when the isolate exits before ever sending an init result (e.g. an
+  /// uncaught error that predates the `try`/`catch` in [workerMain]).
+  /// Without this race, such a death would leave `initPort.first`
+  /// awaiting forever since nothing was ever sent on it.
+  static const _diedDuringInit = 'Worker isolate exited during startup';
+
   Worker._(this._sendPort, this._isolate, this._exitPort) {
-    _isolate.addOnExitListener(_exitPort.sendPort);
     _exitPort.listen((_) => _markDead());
   }
 
@@ -71,7 +77,16 @@ class Worker {
       ),
     );
 
-    final result = await initPort.first;
+    // Registered before awaiting `initPort` so that if the isolate dies
+    // before ever sending an init result (e.g. an uncaught error in
+    // `workerMain` predating its try/catch), `exitPort` fires and the
+    // race below resolves instead of hanging on `initPort.first` forever.
+    isolate.addOnExitListener(exitPort.sendPort);
+
+    final result = await Future.any([
+      initPort.first,
+      exitPort.first.then((_) => _diedDuringInit),
+    ]);
     initPort.close();
 
     if (result is SendPort) {

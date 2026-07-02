@@ -28,9 +28,9 @@ void workerMain(InitMsg init) {
     debugLibSmb2PathOverride = init.testLibOverride;
   }
 
-  final client = Smb2Client.open();
-
+  final Smb2Client client;
   try {
+    client = Smb2Client.open();
     client.connect(
       host: init.host,
       share: init.share,
@@ -43,6 +43,10 @@ void workerMain(InitMsg init) {
       version: init.version,
     );
   } catch (e) {
+    // Covers both native-library load failures (Smb2Client.open) and
+    // connect failures — either way the isolate reports back over
+    // init.sendPort instead of dying uncaught, which would otherwise
+    // leave Worker.spawn's `initPort.first` awaiting forever.
     init.sendPort.send(e.toString());
     return;
   }
