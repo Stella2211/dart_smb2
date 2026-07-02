@@ -40,8 +40,17 @@ class Worker {
   /// awaiting forever since nothing was ever sent on it.
   static const _diedDuringInit = 'Worker isolate exited during startup';
 
-  Worker._(this._sendPort, this._isolate, this._exitPort) {
-    _exitPort.listen((_) => _markDead());
+  Worker._(
+    this._sendPort,
+    this._isolate,
+    this._exitPort,
+    Future<void> exited,
+  ) {
+    // NOTE: `_exitPort` is already being listened to by [spawn] (a
+    // ReceivePort is single-subscription and can only ever be listened
+    // to once), so death is observed through the shared [exited] future
+    // instead of a second `listen` call.
+    exited.then((_) => _markDead());
   }
 
   /// Internal accessor used by [Smb2PoolHandle]'s GC finalizer to
@@ -83,16 +92,26 @@ class Worker {
     // race below resolves instead of hanging on `initPort.first` forever.
     isolate.addOnExitListener(exitPort.sendPort);
 
+    // A ReceivePort is a single-subscription stream, so this is the one
+    // and only `listen` on `exitPort` for the worker's whole lifetime.
+    // Using `exitPort.first` here would leave that subscription claimed
+    // on the success path and make any later listen throw
+    // "Stream has already been listened to".
+    final exited = Completer<void>();
+    exitPort.listen((_) {
+      if (!exited.isCompleted) exited.complete();
+    });
+
     final result = await Future.any([
       initPort.first,
-      exitPort.first.then((_) => _diedDuringInit),
+      exited.future.then((_) => _diedDuringInit),
     ]);
     initPort.close();
 
     if (result is SendPort) {
-      return Worker._(result, isolate, exitPort);
+      return Worker._(result, isolate, exitPort, exited.future);
     }
-    // Initialisation failed; exitPort never gets listened to.
+    // Initialisation failed; drop the exit subscription with the port.
     exitPort.close();
     throw Smb2Exception('Worker failed to start: $result');
   }
