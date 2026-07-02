@@ -2,6 +2,8 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
+import 'dart:io' show Platform;
+
 import 'package:dart_smb2/dart_smb2.dart';
 import 'package:test/test.dart';
 
@@ -39,84 +41,6 @@ void main() {
       expect(Smb2ErrorType.fromErrno(32), Smb2ErrorType.connection);
     });
 
-    // macOS errno values
-    test('maps macOS ETIMEDOUT (60) to timeout', () {
-      expect(Smb2ErrorType.fromErrno(60), Smb2ErrorType.timeout);
-    });
-
-    test('maps macOS ECONNREFUSED (61) to auth', () {
-      expect(Smb2ErrorType.fromErrno(61), Smb2ErrorType.auth);
-    });
-
-    test('maps macOS ECONNRESET (54) to connection', () {
-      expect(Smb2ErrorType.fromErrno(54), Smb2ErrorType.connection);
-    });
-
-    test('maps macOS ENETRESET (52) to connection', () {
-      expect(Smb2ErrorType.fromErrno(52), Smb2ErrorType.connection);
-    });
-
-    test('maps macOS ECONNABORTED (53) to connection', () {
-      expect(Smb2ErrorType.fromErrno(53), Smb2ErrorType.connection);
-    });
-
-    test('maps macOS ENOTCONN (57) to connection', () {
-      expect(Smb2ErrorType.fromErrno(57), Smb2ErrorType.connection);
-    });
-
-    test('maps macOS ENETDOWN (50) to connection', () {
-      expect(Smb2ErrorType.fromErrno(50), Smb2ErrorType.connection);
-    });
-
-    test('maps macOS ENETUNREACH (51) to connection', () {
-      expect(Smb2ErrorType.fromErrno(51), Smb2ErrorType.connection);
-    });
-
-    test('maps macOS EHOSTDOWN (64) to connection', () {
-      expect(Smb2ErrorType.fromErrno(64), Smb2ErrorType.connection);
-    });
-
-    test('maps macOS EHOSTUNREACH (65) to connection', () {
-      expect(Smb2ErrorType.fromErrno(65), Smb2ErrorType.connection);
-    });
-
-    // Linux errno values
-    test('maps Linux ETIMEDOUT (110) to timeout', () {
-      expect(Smb2ErrorType.fromErrno(110), Smb2ErrorType.timeout);
-    });
-
-    test('maps Linux ECONNREFUSED (111) to auth', () {
-      expect(Smb2ErrorType.fromErrno(111), Smb2ErrorType.auth);
-    });
-
-    test('maps Linux ECONNRESET (104) to connection', () {
-      expect(Smb2ErrorType.fromErrno(104), Smb2ErrorType.connection);
-    });
-
-    test('maps Linux ECONNABORTED (103) to connection', () {
-      expect(Smb2ErrorType.fromErrno(103), Smb2ErrorType.connection);
-    });
-
-    test('maps Linux ENETDOWN (100) to connection', () {
-      expect(Smb2ErrorType.fromErrno(100), Smb2ErrorType.connection);
-    });
-
-    test('maps Linux ENETUNREACH (101) to connection', () {
-      expect(Smb2ErrorType.fromErrno(101), Smb2ErrorType.connection);
-    });
-
-    test('maps Linux ENETRESET (102) to connection', () {
-      expect(Smb2ErrorType.fromErrno(102), Smb2ErrorType.connection);
-    });
-
-    test('maps Linux EHOSTDOWN (112) to connection', () {
-      expect(Smb2ErrorType.fromErrno(112), Smb2ErrorType.connection);
-    });
-
-    test('maps Linux EHOSTUNREACH (113) to connection', () {
-      expect(Smb2ErrorType.fromErrno(113), Smb2ErrorType.connection);
-    });
-
     test('maps unknown errno to unknown', () {
       expect(Smb2ErrorType.fromErrno(9999), Smb2ErrorType.unknown);
     });
@@ -125,6 +49,100 @@ void main() {
       expect(Smb2ErrorType.fromErrno(0), Smb2ErrorType.unknown);
     });
   });
+
+  // fromErrno dispatches on Platform.isWindows, so these numeric-range
+  // tests exercise the POSIX branch and only hold on non-Windows hosts.
+  group(
+    'Smb2ErrorType.fromErrno (macOS errno values)',
+    () {
+      test('maps macOS ETIMEDOUT (60) to timeout', () {
+        expect(Smb2ErrorType.fromErrno(60), Smb2ErrorType.timeout);
+      });
+
+      test('maps macOS ECONNREFUSED (61) to auth', () {
+        expect(Smb2ErrorType.fromErrno(61), Smb2ErrorType.auth);
+      });
+
+      test('maps macOS ECONNRESET (54) to connection', () {
+        expect(Smb2ErrorType.fromErrno(54), Smb2ErrorType.connection);
+      });
+
+      test('maps macOS ENETRESET (52) to connection', () {
+        expect(Smb2ErrorType.fromErrno(52), Smb2ErrorType.connection);
+      });
+
+      test('maps macOS ECONNABORTED (53) to connection', () {
+        expect(Smb2ErrorType.fromErrno(53), Smb2ErrorType.connection);
+      });
+
+      test('maps macOS ENOTCONN (57) to connection', () {
+        expect(Smb2ErrorType.fromErrno(57), Smb2ErrorType.connection);
+      });
+
+      test('maps macOS ENETDOWN (50) to connection', () {
+        expect(Smb2ErrorType.fromErrno(50), Smb2ErrorType.connection);
+      });
+
+      test('maps macOS ENETUNREACH (51) to connection', () {
+        expect(Smb2ErrorType.fromErrno(51), Smb2ErrorType.connection);
+      });
+
+      test('maps macOS EHOSTDOWN (64) to connection', () {
+        expect(Smb2ErrorType.fromErrno(64), Smb2ErrorType.connection);
+      });
+
+      test('maps macOS EHOSTUNREACH (65) to connection', () {
+        expect(Smb2ErrorType.fromErrno(65), Smb2ErrorType.connection);
+      });
+    },
+    skip: Platform.isWindows
+        ? 'fromErrno uses CRT errno values on Windows'
+        : false,
+  );
+
+  group(
+    'Smb2ErrorType.fromErrno (Linux errno values)',
+    () {
+      test('maps Linux ETIMEDOUT (110) to timeout', () {
+        expect(Smb2ErrorType.fromErrno(110), Smb2ErrorType.timeout);
+      });
+
+      test('maps Linux ECONNREFUSED (111) to auth', () {
+        expect(Smb2ErrorType.fromErrno(111), Smb2ErrorType.auth);
+      });
+
+      test('maps Linux ECONNRESET (104) to connection', () {
+        expect(Smb2ErrorType.fromErrno(104), Smb2ErrorType.connection);
+      });
+
+      test('maps Linux ECONNABORTED (103) to connection', () {
+        expect(Smb2ErrorType.fromErrno(103), Smb2ErrorType.connection);
+      });
+
+      test('maps Linux ENETDOWN (100) to connection', () {
+        expect(Smb2ErrorType.fromErrno(100), Smb2ErrorType.connection);
+      });
+
+      test('maps Linux ENETUNREACH (101) to connection', () {
+        expect(Smb2ErrorType.fromErrno(101), Smb2ErrorType.connection);
+      });
+
+      test('maps Linux ENETRESET (102) to connection', () {
+        expect(Smb2ErrorType.fromErrno(102), Smb2ErrorType.connection);
+      });
+
+      test('maps Linux EHOSTDOWN (112) to connection', () {
+        expect(Smb2ErrorType.fromErrno(112), Smb2ErrorType.connection);
+      });
+
+      test('maps Linux EHOSTUNREACH (113) to connection', () {
+        expect(Smb2ErrorType.fromErrno(113), Smb2ErrorType.connection);
+      });
+    },
+    skip: Platform.isWindows
+        ? 'fromErrno uses CRT errno values on Windows'
+        : false,
+  );
 
   group('Smb2ErrorType.isConnectionError', () {
     test('connection is retriable', () {

@@ -64,6 +64,11 @@ jobs:
       - name: Bootstrap Samba container + seed share
         run: |
           cp test/integration/.env.test.example test/integration/.env.test
+          # docker compose auto-creates this bind-mount source as root:root,
+          # but the Samba container writes as testuser (uid 1000, via
+          # `force user`) — without this it can't create files on the share.
+          mkdir -p test/integration/volumes/share
+          chmod 777 test/integration/volumes/share
           SMB2_LIB_PATH="$PWD/build/native/dist/libsmb2_linux-x86_64.so" \
             dart run test/integration/bootstrap.dart
       - name: Run integration + smoke tests

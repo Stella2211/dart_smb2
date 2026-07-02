@@ -2,7 +2,7 @@ Pod::Spec.new do |s|
   s.name             = 'dart_smb2'
   s.version          = '0.2.0'
   s.summary          = 'SMB2/3 client for Dart.'
-  s.homepage         = 'https://github.com/ales-drnz/dart_smb2'
+  s.homepage         = 'https://github.com/Stella2211/dart_smb2'
   s.license          = { :type => 'BSD-3-Clause' }
   s.author           = { 'ales-drnz' => '' }
   s.source           = { :path => '.' }
@@ -20,7 +20,7 @@ Pod::Spec.new do |s|
     set -e
     RELEASE="libsmb2-r5"
     EXPECTED_SHA="41d213540d7c5742fed06689eb48437b6032c2b484cb07a5391e77a90d4a2802"
-    URL="https://github.com/ales-drnz/dart_smb2/releases/download/${RELEASE}/libsmb2_macos.xcframework.zip"
+    URL="https://github.com/Stella2211/dart_smb2/releases/download/${RELEASE}/libsmb2_macos.xcframework.zip"
 
     mkdir -p dart_smb2/Frameworks
     ZIP="dart_smb2/Frameworks/libsmb2_xcframework.zip"

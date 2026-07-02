@@ -56,7 +56,7 @@ android {
 }
 
 val SMB2_RELEASE_VERSION = "libsmb2-r5"
-val SMB2_BASE_URL = "https://github.com/ales-drnz/dart_smb2/releases/download/${SMB2_RELEASE_VERSION}"
+val SMB2_BASE_URL = "https://github.com/Stella2211/dart_smb2/releases/download/${SMB2_RELEASE_VERSION}"
 
 val downloadSmb2Task = tasks.register("downloadSmb2Libraries") {
     // Replace these SHA-256 hashes after building and uploading to GitHub Releases.

@@ -48,7 +48,7 @@ if(DOWNLOAD_NEEDED)
   message(STATUS "[dart_smb2] Downloading ${_SMB2_RELEASE_NAME} from GitHub Releases...")
   file(MAKE_DIRECTORY "${_SMB2_LIB_DIR}")
   file(DOWNLOAD
-    "https://github.com/ales-drnz/dart_smb2/releases/download/${SMB2_RELEASE_VERSION}/${_SMB2_RELEASE_NAME}"
+    "https://github.com/Stella2211/dart_smb2/releases/download/${SMB2_RELEASE_VERSION}/${_SMB2_RELEASE_NAME}"
     "${_BUNDLED_SMB2}"
     SHOW_PROGRESS
     EXPECTED_HASH SHA256=${_SMB2_EXPECTED_SHA}
