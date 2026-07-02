@@ -18,8 +18,8 @@ Pod::Spec.new do |s|
   # rewriting + codesigning at build time.
   s.prepare_command = <<-CMD
     set -e
-    RELEASE="libsmb2-r5"
-    EXPECTED_SHA="41d213540d7c5742fed06689eb48437b6032c2b484cb07a5391e77a90d4a2802"
+    RELEASE="libsmb2-r8"
+    EXPECTED_SHA="32485b887d79584632db5403be37ba9bdb1d17d4e96036db2d2217c9264facf9"
     URL="https://github.com/Stella2211/dart_smb2/releases/download/${RELEASE}/libsmb2_macos.xcframework.zip"
 
     mkdir -p dart_smb2/Frameworks

@@ -14,9 +14,9 @@ endif()
 # arches are supported (x86_64, arm64) and the binaries live in arch-scoped
 # subdirectories: windows/libs/<arch>/libsmb2.dll. The CMake config detects
 # the build's target arch and picks the matching subdir.
-set(SMB2_RELEASE_VERSION "libsmb2-r5")
-set(EXPECTED_SHA256_X86_64  "f1438e59bcb8867cd04e3fdc6f2a8b1203277cfc000258b55c4281ad2fb1fc38")
-set(EXPECTED_SHA256_ARM64  "247718223d98bb4899e27047815a60bbe831d5ea679668e209eade27ffdef1bf")
+set(SMB2_RELEASE_VERSION  "libsmb2-r8")
+set(EXPECTED_SHA256_X86_64  "63819869798e9290b5b3610f8a8d4412052046b7381883eb6d90401d80e5c11c")
+set(EXPECTED_SHA256_ARM64  "6b156af4afde501eda21e5e61b1e9373a1f1a59e0720a8975d530d9fb9142b2e")
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64)$")
   set(_SMB2_ARCH         "arm64")

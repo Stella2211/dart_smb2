@@ -12,9 +12,9 @@ endif()
 # arches are supported (x86_64, aarch64) and the binaries live in arch-scoped
 # subdirectories: linux/libs/<arch>/libsmb2.so. The CMake config detects the
 # build's target arch and picks the matching subdir.
-set(SMB2_RELEASE_VERSION "libsmb2-r5")
-set(EXPECTED_SHA256_X86_64  "290808797455ef6a448e05aec9897696e6e729fbd91ed6891fe99c10b993d829")
-set(EXPECTED_SHA256_AARCH64  "d50219e4652c0402c32fefff5189c90c0dd9918788890af8688d04217b27e412")
+set(SMB2_RELEASE_VERSION  "libsmb2-r8")
+set(EXPECTED_SHA256_X86_64  "d269f6f84ed2868e8166341d8258de69376d37e6988fb4d1c5b9706a2e723f98")
+set(EXPECTED_SHA256_AARCH64  "f4c5a71f1131e9883f87e105ffe8e2208aac48defa9bbd8653e0380f81b7d16a")
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
   set(_SMB2_ARCH         "aarch64")

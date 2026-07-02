@@ -17,8 +17,8 @@ Pod::Spec.new do |s|
   # time alongside the rest of the app's frameworks.
   s.prepare_command = <<-CMD
     set -e
-    RELEASE="libsmb2-r5"
-    EXPECTED_SHA="a4fa68099a348fabd0753904732152dd3d5809447d6b0df9c75ba335383554c3"
+    RELEASE="libsmb2-r8"
+    EXPECTED_SHA="e306a3feaaf5e009450c2425833f5da7dad4586cc33a9dbe5d6f8233563936df"
     URL="https://github.com/Stella2211/dart_smb2/releases/download/${RELEASE}/libsmb2_ios.xcframework.zip"
 
     mkdir -p dart_smb2/Frameworks
