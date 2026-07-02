@@ -25,7 +25,7 @@ Add `dart_smb2` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  dart_smb2: ^0.1.0
+  dart_smb2: ^0.2.0
 ```
 
 ---
@@ -127,6 +127,7 @@ dependencies:
 
 *   [Types Reference](#types-reference)
 *   [Permissions](#permissions)
+*   [Native binaries & licensing](#native-binaries--licensing)
 *   [Project background](#project-background)
 
 ---
@@ -1020,6 +1021,50 @@ Add to `DebugProfile.entitlements` and `Release.entitlements`:
 <key>com.apple.security.network.client</key>
 <true/>
 ```
+
+---
+
+## Native binaries & licensing
+
+The Dart package itself is BSD-3-Clause. The bundled native library, [libsmb2](https://github.com/sahlberg/libsmb2), is **LGPL-2.1** and is handled so that consuming apps stay compliant:
+
+* Built from **unmodified upstream sources** — the exact upstream commit (release tag `libsmb2-6.1`) is pinned as a git submodule at `third_party/libsmb2`. No patches are applied; the submodule hash *is* the upstream hash, so the corresponding source is always identifiable.
+* **Dynamically linked** on every platform (`.so` on Android/Linux, `.dll` on Windows, dynamic `libsmb2.framework` on macOS/iOS), so end users can swap the library — as the LGPL requires.
+* Downloaded at consumer-build time from this repository's GitHub Releases and verified against pinned SHA-256 checksums.
+* Kerberos/GSSAPI is disabled at build configuration time; authentication uses libsmb2's built-in NTLMSSP.
+
+Earlier releases (`libsmb2-r5` and before) shipped binaries built from patched libsmb2 sources. Those patches are no longer needed — their behavior moved into the Dart layer:
+
+| Former libsmb2 patch | Replacement in this package |
+| :--- | :--- |
+| `sync.c`: retry `poll()` on `EINTR` (Dart/ART VM signals aborted connects) | Dart-side event pump (`lib/src/ffi/event_pump.dart`) drives the upstream `*_async` API and retries `EINTR` in its own poll loop |
+| Completion callbacks patched to record the NT error via `smb2_set_nterror` | The async completion status (a fresh `-errno`) is consumed directly for error classification |
+| Custom `smb2_share_enum_sync` API | Upstream `smb2_share_enum_async` + the event pump |
+
+### Building the native binaries
+
+Every artifact is produced from the pristine submodule sources by the scripts in `tool/native/`:
+
+| Script | Host | Produces |
+| :--- | :--- | :--- |
+| `build-apple.sh` | macOS + Xcode | `libsmb2_macos.xcframework.zip`, `libsmb2_ios.xcframework.zip` |
+| `build-android.sh` | any, with NDK | `libsmb2_android-{arm64-v8a,armeabi-v7a,x86_64}.so` |
+| `build-linux.sh` | Linux x86_64 / aarch64 | `libsmb2_linux-<arch>.so` |
+| `build-windows.ps1` | Windows + MSVC | `libsmb2_windows-{x86_64,arm64}.dll` |
+
+### Release flow (CI)
+
+The `native-release` workflow builds all platforms and publishes a GitHub Release when a `libsmb2-r<N>` tag is pushed:
+
+```sh
+git tag libsmb2-r6 && git push origin libsmb2-r6
+# ...wait for the workflow to publish the release...
+gh release download libsmb2-r6 --pattern SHA256SUMS
+dart run tool/update_native_checksums.dart SHA256SUMS libsmb2-r6
+# commit the updated podspecs / gradle / CMake / Package.swift pins
+```
+
+The `ci` workflow additionally runs static analysis, unit tests on Linux/macOS/Windows, the full integration suite against a Samba container using a vanilla libsmb2 built from the submodule, and example-app builds for all five platforms.
 
 ---
 

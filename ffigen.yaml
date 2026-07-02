@@ -4,23 +4,23 @@ description: |
   Do not edit by hand.
 output: 'lib/src/ffi/libsmb2_bindings.dart'
 
-# Headers we parse. We point at the source checkout shipped via the sibling
-# `libsmb2-scripts` repo; the prebuilt binaries in macos/ios/android/linux/
-# windows/ are built from the same submodule pin, so headers and ABI stay in
-# sync.
+# Headers we parse. We point at the UNMODIFIED upstream libsmb2 checkout
+# vendored as a git submodule at `third_party/libsmb2` (pinned to the
+# upstream release tag). The prebuilt binaries downloaded by the platform
+# builds are compiled from the same pin, so headers and ABI stay in sync.
 headers:
   entry-points:
-    - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/libsmb2.h'
-    - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/smb2.h'
-    - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/smb2-errors.h'
-    # DCE/RPC + srvsvc are needed for `smb2_share_enum_sync` and its
-    # return-type tree (`srvsvc_NetrShareEnum_rep` → `…_CONTAINER` →
+    - 'third_party/libsmb2/include/smb2/libsmb2.h'
+    - 'third_party/libsmb2/include/smb2/smb2.h'
+    - 'third_party/libsmb2/include/smb2/smb2-errors.h'
+    # DCE/RPC + srvsvc are needed for `smb2_share_enum_async` and its
+    # result-type tree (`srvsvc_NetrShareEnum_rep` → `…_CONTAINER` →
     # `…_carray` → `SHARE_INFO_1` → `dcerpc_utf16`).
-    - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/libsmb2-dcerpc.h'
-    - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/libsmb2-dcerpc-srvsvc.h'
+    - 'third_party/libsmb2/include/smb2/libsmb2-dcerpc.h'
+    - 'third_party/libsmb2/include/smb2/libsmb2-dcerpc-srvsvc.h'
     # libsmb2-raw.h declares `smb2_free_data` — used to release the
-    # response tree returned by `smb2_share_enum_sync`.
-    - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/libsmb2-raw.h'
+    # response tree returned via the `smb2_share_enum_async` callback.
+    - 'third_party/libsmb2/include/smb2/libsmb2-raw.h'
   include-directives:
     # Restrict generation to public smb2 headers. Without this, transitive
     # includes (stdint.h, etc.) pollute the output.
@@ -32,8 +32,8 @@ headers:
     - '**/smb2/libsmb2-raw.h'
 
 compiler-opts:
-  # Sibling repo's private headers (config.h, portable-endian.h).
-  - '-I../libsmb2-scripts/scripts/src/libsmb2/include'
+  # Upstream repo's own headers (portable-endian.h etc.).
+  - '-Ithird_party/libsmb2/include'
   # libsmb2 headers use uint8_t / uint64_t / size_t / time_t without
   # including <stdint.h> directly — force-include the standard fixed-width
   # integer + size headers so clang resolves them.
@@ -46,26 +46,29 @@ compiler-opts:
   # libsmb2.h references SMB2_GUID_SIZE and smb2_lease_key from smb2.h
   # without including it itself — force-include smb2.h before libsmb2.h.
   - '-include'
-  - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/smb2.h'
+  - 'third_party/libsmb2/include/smb2/smb2.h'
   # libsmb2-dcerpc-srvsvc.h references smb2_command_cb declared in
   # libsmb2.h. Force-include libsmb2.h so the typedef is visible during
   # parsing of the srvsvc header.
   - '-include'
-  - '../libsmb2-scripts/scripts/src/libsmb2/include/smb2/libsmb2.h'
+  - 'third_party/libsmb2/include/smb2/libsmb2.h'
   - '-D_GNU_SOURCE=1'
 
-# Only emit what we need. Phase B/C/D will extend this list. Keeping the
-# surface narrow keeps the generated file small and makes diffs easy to
-# audit.
+# Only emit what we need. The client drives libsmb2 exclusively through the
+# upstream *_async API plus a Dart-side poll/service event pump — the
+# libsmb2 sync wrappers (sync.c) are intentionally NOT bound: their internal
+# wait loop aborts on EINTR (signals from the Dart/ART VM), which is the bug
+# the old patched binaries worked around. Keeping the surface narrow keeps
+# the generated file small and makes diffs easy to audit.
 functions:
   include:
     # Context lifecycle
     - 'smb2_init_context'
     - 'smb2_destroy_context'
     - 'smb2_close_context'
-    # Connection
-    - 'smb2_connect_share'
-    - 'smb2_disconnect_share'
+    # Connection (async — driven by the Dart event pump)
+    - 'smb2_connect_share_async'
+    - 'smb2_disconnect_share_async'
     # Settings
     - 'smb2_set_user'
     - 'smb2_set_password'
@@ -84,40 +87,38 @@ functions:
     # Version
     - 'smb2_get_libsmb2Version'
     - 'smb2_get_dialect'
-    # Directories
-    - 'smb2_opendir'
+    # Directories — opendir is async; readdir/closedir iterate/free the
+    # in-memory listing that opendir already fetched (no network I/O).
+    - 'smb2_opendir_async'
     - 'smb2_closedir'
     - 'smb2_readdir'
-    # Files / metadata
-    - 'smb2_stat'
-    - 'smb2_fstat'
-    - 'smb2_open'
-    - 'smb2_close'
-    - 'smb2_pread'
-    - 'smb2_pwrite'
-    - 'smb2_read'
-    - 'smb2_write'
-    - 'smb2_fsync'
-    - 'smb2_ftruncate'
-    - 'smb2_unlink'
-    - 'smb2_mkdir'
-    - 'smb2_rmdir'
-    - 'smb2_rename'
-    - 'smb2_truncate'
-    - 'smb2_readlink'
-    - 'smb2_statvfs'
-    - 'smb2_echo'
+    # Files / metadata (async)
+    - 'smb2_stat_async'
+    - 'smb2_fstat_async'
+    - 'smb2_open_async'
+    - 'smb2_close_async'
+    - 'smb2_pread_async'
+    - 'smb2_pwrite_async'
+    - 'smb2_fsync_async'
+    - 'smb2_ftruncate_async'
+    - 'smb2_unlink_async'
+    - 'smb2_mkdir_async'
+    - 'smb2_rmdir_async'
+    - 'smb2_rename_async'
+    - 'smb2_truncate_async'
+    - 'smb2_readlink_async'
+    - 'smb2_statvfs_async'
+    - 'smb2_echo_async'
     # Negotiated MaxReadSize / MaxWriteSize — used to chunk large
     # read/write payloads so each PDU fits within the server's limit.
     - 'smb2_get_max_read_size'
     - 'smb2_get_max_write_size'
-    # DCE/RPC share enumeration — replaces the wrapper's smb2w_list_shares.
-    # smb2_free_data releases the response tree allocated by libsmb2's
-    # DCE/RPC parser.
-    - 'smb2_share_enum_sync'
+    # DCE/RPC share enumeration. smb2_free_data releases the response tree
+    # allocated by libsmb2's DCE/RPC parser.
+    - 'smb2_share_enum_async'
     - 'smb2_free_data'
-    # Async machinery — needed for Phase D (share enum) and any future
-    # async-only API. Safe to include; the sync API does not require it.
+    # Event pump — the Dart side owns the poll() loop (with EINTR retry)
+    # and calls smb2_service to drive I/O and PDU timeouts.
     - 'smb2_service'
     - 'smb2_which_events'
     - 'smb2_get_fd'
@@ -132,7 +133,7 @@ structs:
     - 'smb2fh'                 # opaque
     - 'smb2_libversion'
     - 'smb2_iovec'
-    # DCE/RPC + srvsvc tree returned by smb2_share_enum_sync.
+    # DCE/RPC + srvsvc tree delivered by the smb2_share_enum_async callback.
     - 'dcerpc_utf16'
     - 'srvsvc_NetrShareEnum_rep'
     - 'srvsvc_SHARE_ENUM_STRUCT'
@@ -147,6 +148,12 @@ structs:
     # Renaming the struct keeps the function name pristine.
     'smb2_statvfs': 'Smb2StatVfsNative'
 
+typedefs:
+  include:
+    # Completion callback signature shared by every *_async function —
+    # implemented on the Dart side with NativeCallable.isolateLocal.
+    - 'smb2_command_cb'
+
 macros:
   include:
     # File type constants used by smb2_stat_64.smb2_type.
@@ -157,7 +164,7 @@ macros:
     - 'LIBSMB2_MAJOR_VERSION'
     - 'LIBSMB2_MINOR_VERSION'
     - 'LIBSMB2_PATCH_VERSION'
-    # Open-mode flags used by smb2_open.
+    # Open-mode flags used by smb2_open_async.
     - 'O_RDONLY'
     - 'O_WRONLY'
     - 'O_RDWR'

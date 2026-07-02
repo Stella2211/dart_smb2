@@ -1,0 +1,124 @@
+# Builds the native libsmb2 binaries for every supported platform from the
+# UNMODIFIED upstream sources vendored at third_party/libsmb2 (git
+# submodule pinned to an upstream release tag), and publishes them — plus a
+# SHA256SUMS manifest — as a GitHub Release.
+#
+# Trigger:
+#   * push a tag named `libsmb2-r<N>` → builds + creates the release
+#   * workflow_dispatch → builds + uploads artifacts only (no release)
+#
+# After a release, update the pinned checksums in the platform build files:
+#   dart run tool/update_native_checksums.dart <SHA256SUMS> <tag>
+#
+# License note: libsmb2 is LGPL-2.1. These binaries are built from pristine
+# upstream sources (the submodule commit IS the upstream commit — no
+# patches), are linked dynamically by the consuming apps, and the exact
+# corresponding source is identified by the submodule pin recorded in this
+# repository at the released tag.
+name: native-release
+
+on:
+  push:
+    tags: ['libsmb2-r*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apple:
+    name: macOS + iOS xcframeworks
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Build xcframeworks
+        run: ./tool/native/build-apple.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-apple
+          path: build/native/dist/*
+          if-no-files-found: error
+
+  android:
+    name: Android (arm64-v8a, armeabi-v7a, x86_64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Build .so per ABI
+        run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" ./tool/native/build-android.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-android
+          path: build/native/dist/*
+          if-no-files-found: error
+
+  linux:
+    name: Linux ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install toolchain
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake gcc binutils
+      - name: Build .so
+        run: ./tool/native/build-linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-linux-${{ matrix.arch }}
+          path: build/native/dist/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows (x86_64 + arm64)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Build DLLs
+        run: pwsh tool/native/build-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-windows
+          path: build/native/dist/*
+          if-no-files-found: error
+
+  release:
+    name: Checksums + GitHub Release
+    needs: [apple, android, linux, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Generate SHA256SUMS
+        run: |
+          cd dist
+          sha256sum * | tee SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SHA256SUMS
+          path: dist/SHA256SUMS
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/libsmb2-r')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME — vanilla libsmb2 binaries" \
+            --notes "Prebuilt libsmb2 binaries compiled from **unmodified** upstream sources (see the \`third_party/libsmb2\` submodule pin at this tag for the exact upstream commit). libsmb2 is licensed under LGPL-2.1; the corresponding source is the pinned upstream tree. Verify downloads against SHA256SUMS."

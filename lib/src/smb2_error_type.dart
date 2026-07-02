@@ -2,6 +2,8 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
+import 'dart:io' show Platform;
+
 /// Semantic error categories mapped from POSIX errno values.
 ///
 /// SMB2 operations surface native errno codes that vary by platform.
@@ -48,11 +50,43 @@ enum Smb2ErrorType {
   bool get isConnectionError =>
       this == Smb2ErrorType.connection || this == Smb2ErrorType.timeout;
 
-  /// Maps a POSIX [errno] value to a semantic [Smb2ErrorType].
+  /// Maps a native [errno] value to a semantic [Smb2ErrorType].
   ///
-  /// Handles both Linux and macOS/iOS errno values since libsmb2 surfaces the
-  /// platform-native codes.
-  static Smb2ErrorType fromErrno(int errno) => switch (errno) {
+  /// libsmb2 surfaces the errno constants it was *compiled* with, so the
+  /// mapping is platform-specific: POSIX values on Linux/Android/macOS/iOS,
+  /// MSVC CRT values on Windows. The numeric ranges overlap (e.g. 110 is
+  /// ETIMEDOUT on Linux but EHOSTUNREACH on Windows), hence the dispatch.
+  static Smb2ErrorType fromErrno(int errno) =>
+      Platform.isWindows ? _fromErrnoWindows(errno) : _fromErrnoPosix(errno);
+
+  /// MSVC CRT errno values (also used by mingw-w64's MSVCRT/UCRT), as
+  /// produced by a Windows build of libsmb2's `nterror_to_errno`.
+  static Smb2ErrorType _fromErrnoWindows(int errno) => switch (errno) {
+        // Classic CRT values shared with POSIX.
+        2 => Smb2ErrorType.fileNotFound, // ENOENT
+        5 => Smb2ErrorType.io, // EIO
+        13 => Smb2ErrorType.accessDenied, // EACCES
+        17 => Smb2ErrorType.alreadyExists, // EEXIST
+        20 => Smb2ErrorType.notADirectory, // ENOTDIR
+        22 => Smb2ErrorType.invalidParam, // EINVAL
+        28 => Smb2ErrorType.diskFull, // ENOSPC
+        32 => Smb2ErrorType.connection, // EPIPE
+        // Extended CRT values (errno.h, MSVC 2010+).
+        106 => Smb2ErrorType.connection, // ECONNABORTED
+        107 => Smb2ErrorType.auth, // ECONNREFUSED (often LOGON_FAILURE)
+        108 => Smb2ErrorType.connection, // ECONNRESET
+        110 => Smb2ErrorType.connection, // EHOSTUNREACH
+        116 => Smb2ErrorType.connection, // ENETDOWN
+        117 => Smb2ErrorType.connection, // ENETRESET
+        118 => Smb2ErrorType.connection, // ENETUNREACH
+        126 => Smb2ErrorType.connection, // ENOTCONN
+        138 => Smb2ErrorType.timeout, // ETIMEDOUT
+        _ => Smb2ErrorType.unknown,
+      };
+
+  /// POSIX errno values — handles both Linux/Android and macOS/iOS since
+  /// libsmb2 surfaces the platform-native codes.
+  static Smb2ErrorType _fromErrnoPosix(int errno) => switch (errno) {
         // ENOENT — Linux & macOS
         2 => Smb2ErrorType.fileNotFound,
 
@@ -202,12 +236,27 @@ enum Smb2ErrorType {
   /// failure) and falls back to the errno mapping.
   ///
   /// This is the right entry point for code that has both a libsmb2 message
-  /// and an errno value. The message is consulted first because libsmb2's
-  /// `nterror` field is *not reset* between operations — a stale errno from
-  /// a prior call can otherwise misclassify a fresh transport failure.
+  /// and an errno value *of unknown freshness*. The message is consulted
+  /// first because libsmb2's `nterror` field is *not reset* between
+  /// operations — a stale errno from a prior call can otherwise misclassify
+  /// a fresh transport failure.
   static Smb2ErrorType classify(String message, int errno) {
     final fromMsg = fromMessage(message);
     if (fromMsg != Smb2ErrorType.unknown) return fromMsg;
     return fromErrno(errno);
+  }
+
+  /// Classifier for the async-callback path, where [errno] comes straight
+  /// from the operation's completion status (`-status`) and is therefore
+  /// always fresh — the opposite freshness situation from [classify]: here
+  /// it is `smb2_get_error`'s *message* that may be stale (upstream libsmb2
+  /// does not set a fresh error string for every failing compound
+  /// operation), so the errno wins and the message is only a fallback.
+  static Smb2ErrorType classifyStatus(int errno, String message) {
+    if (errno != 0) {
+      final byErrno = fromErrno(errno);
+      if (byErrno != Smb2ErrorType.unknown) return byErrno;
+    }
+    return fromMessage(message);
   }
 }

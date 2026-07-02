@@ -1,3 +1,19 @@
+## [0.2.0] - 02-07-2026
+
+### Changed
+- **Runs against unmodified upstream libsmb2.** All behavior that previously required patched libsmb2 binaries now lives in the Dart layer, resolving the LGPL concern of shipping modified binaries without published patches:
+  - Replaced libsmb2's sync wrappers (`sync.c`) with a Dart-side event pump (`smb2_*_async` + `poll`/`smb2_service` loop). The pump retries `poll()` on `EINTR` itself — the former `sync.c` patch.
+  - Error classification now consumes the async completion status (a fresh `-errno`) directly instead of the patched `smb2_set_nterror` plumbing. Classification prefers the errno and falls back to the message.
+  - Share enumeration uses the upstream `smb2_share_enum_async` API instead of the custom `smb2_share_enum_sync` addition.
+- Upstream libsmb2 `6.1.0` is vendored as a git submodule (`third_party/libsmb2`, tag `libsmb2-6.1`) — the pinned hash is the upstream hash, no patches. ffigen and all native builds consume it.
+- Windows errno values (MSVC CRT) are now classified correctly (`ETIMEDOUT`=138, `ECONNREFUSED`=107, …).
+- Kerberos/GSSAPI is disabled in the native builds (build configuration); authentication is NTLMSSP as before.
+
+### Build
+- New `tool/native/` scripts build every platform binary from the pristine submodule sources (macOS/iOS xcframeworks, Android 3 ABIs, Linux x86_64/aarch64, Windows x64/arm64 via MSVC).
+- New `native-release` GitHub workflow: pushing a `libsmb2-r<N>` tag builds all platforms and publishes a GitHub Release with a `SHA256SUMS` manifest. `tool/update_native_checksums.dart` rewrites the pinned checksums in the platform build files from that manifest.
+- New `ci` GitHub workflow: analyze + format, unit tests on Linux/macOS/Windows, the full Samba integration suite on Linux against a vanilla libsmb2 built from the submodule, an ffigen smoke test on macOS, and example-app builds for android/ios/macos/linux/windows.
+
 ## [0.1.0] - 28-05-2026
 
 ### Changed

@@ -1,0 +1,133 @@
+# Multi-platform CI:
+#   * static analysis + formatting
+#   * unit tests on Linux / macOS / Windows
+#   * full integration suite on Linux against a Samba container, running on
+#     a vanilla libsmb2 built from the third_party/libsmb2 submodule
+#   * ffigen smoke test on macOS against a freshly built vanilla xcframework
+#   * example app builds for android / ios / macos / linux / windows
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    name: Analyze + format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib test tool
+      - run: dart analyze --fatal-infos
+
+  test:
+    name: Unit tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # Unit suites only — test/integration requires the Samba bootstrap
+      # (covered by the integration-linux job) and fails to load without it.
+      - run: dart test test/smb2_error_type_test.dart test/smb2_types_test.dart test/ffigen_smoke_test.dart
+
+  integration-linux:
+    name: Integration tests vs Samba (vanilla libsmb2)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install toolchain
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake gcc binutils
+      - name: Build vanilla libsmb2 for the host
+        run: ./tool/native/build-linux.sh
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Bootstrap Samba container + seed share
+        run: |
+          cp test/integration/.env.test.example test/integration/.env.test
+          SMB2_LIB_PATH="$PWD/build/native/dist/libsmb2_linux-x86_64.so" \
+            dart run test/integration/bootstrap.dart
+      - name: Run integration + smoke tests
+        run: dart test test/integration test/ffigen_smoke_test.dart --concurrency=1
+
+  smoke-macos:
+    name: ffigen smoke test vs vanilla xcframework (macOS)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Build vanilla xcframeworks
+        run: ./tool/native/build-apple.sh
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Point the smoke test at the freshly built binary
+        run: |
+          LIB="$PWD/build/native/apple/libsmb2_macos.xcframework/macos-arm64_x86_64/libsmb2.framework/Versions/A/libsmb2"
+          test -f "$LIB"
+          printf '{"host":"","share":"","user":"","password":"","libPath":"%s","testFile":""}\n' "$LIB" \
+            > test/integration/.bootstrap-cache.json
+      - run: dart test test/ffigen_smoke_test.dart
+
+  example-build:
+    name: Example build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: android
+            os: ubuntu-24.04
+            build: flutter build apk --debug
+          - target: linux
+            os: ubuntu-24.04
+            build: flutter build linux --release
+          - target: macos
+            os: macos-14
+            build: flutter build macos --debug
+          - target: ios
+            os: macos-14
+            build: flutter build ios --debug --no-codesign
+          - target: windows
+            os: windows-2022
+            build: flutter build windows --release
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux desktop deps
+        if: matrix.target == 'linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ninja-build libgtk-3-dev cmake clang pkg-config
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'android'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+        working-directory: example
+      - run: ${{ matrix.build }}
+        working-directory: example

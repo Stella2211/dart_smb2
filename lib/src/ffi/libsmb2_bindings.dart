@@ -83,7 +83,7 @@ class LibSmb2Bindings {
   }
 
   late final _smb2_get_fdPtr =
-      _lookup<ffi.NativeFunction<t_socket Function(ffi.Pointer<smb2_context>)>>(
+      _lookup<ffi.NativeFunction<ffi.Int Function(ffi.Pointer<smb2_context>)>>(
           'smb2_get_fd');
   late final _smb2_get_fd =
       _smb2_get_fdPtr.asFunction<int Function(ffi.Pointer<smb2_context>)>();
@@ -344,47 +344,66 @@ class LibSmb2Bindings {
   late final _smb2_set_workstation = _smb2_set_workstationPtr.asFunction<
       void Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>)>();
 
-  /// Sync call to connect to a share. On unix, if user is NULL then default to
+  /// Async call to connect to a share. On unix, if user is NULL then default to
   /// the current user.
-  int smb2_connect_share(
+  int smb2_connect_share_async(
     ffi.Pointer<smb2_context> smb2,
     ffi.Pointer<ffi.Char> server,
     ffi.Pointer<ffi.Char> share,
     ffi.Pointer<ffi.Char> user,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_connect_share(
+    return _smb2_connect_share_async(
       smb2,
       server,
       share,
       user,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_connect_sharePtr = _lookup<
+  late final _smb2_connect_share_asyncPtr = _lookup<
       ffi.NativeFunction<
           ffi.Int Function(
               ffi.Pointer<smb2_context>,
               ffi.Pointer<ffi.Char>,
               ffi.Pointer<ffi.Char>,
-              ffi.Pointer<ffi.Char>)>>('smb2_connect_share');
-  late final _smb2_connect_share = _smb2_connect_sharePtr.asFunction<
-      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
-          ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>)>();
+              ffi.Pointer<ffi.Char>,
+              smb2_command_cb,
+              ffi.Pointer<ffi.Void>)>>('smb2_connect_share_async');
+  late final _smb2_connect_share_async =
+      _smb2_connect_share_asyncPtr.asFunction<
+          int Function(
+              ffi.Pointer<smb2_context>,
+              ffi.Pointer<ffi.Char>,
+              ffi.Pointer<ffi.Char>,
+              ffi.Pointer<ffi.Char>,
+              smb2_command_cb,
+              ffi.Pointer<ffi.Void>)>();
 
-  /// Sync call to disconnect from a share/
-  int smb2_disconnect_share(
+  /// Async call to disconnect from a share/
+  int smb2_disconnect_share_async(
     ffi.Pointer<smb2_context> smb2,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_disconnect_share(
+    return _smb2_disconnect_share_async(
       smb2,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_disconnect_sharePtr =
-      _lookup<ffi.NativeFunction<ffi.Int Function(ffi.Pointer<smb2_context>)>>(
-          'smb2_disconnect_share');
-  late final _smb2_disconnect_share = _smb2_disconnect_sharePtr
-      .asFunction<int Function(ffi.Pointer<smb2_context>)>();
+  late final _smb2_disconnect_share_asyncPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<smb2_context>, smb2_command_cb,
+              ffi.Pointer<ffi.Void>)>>('smb2_disconnect_share_async');
+  late final _smb2_disconnect_share_async =
+      _smb2_disconnect_share_asyncPtr.asFunction<
+          int Function(ffi.Pointer<smb2_context>, smb2_command_cb,
+              ffi.Pointer<ffi.Void>)>();
 
   /// This function returns a description of the last encountered error.
   ffi.Pointer<ffi.Char> smb2_get_error(
@@ -431,24 +450,28 @@ class LibSmb2Bindings {
   late final _nterror_to_errno =
       _nterror_to_errnoPtr.asFunction<int Function(int)>();
 
-  /// Sync opendir()
-  ffi.Pointer<smb2dir> smb2_opendir(
+  /// Async opendir()
+  int smb2_opendir_async(
     ffi.Pointer<smb2_context> smb2,
     ffi.Pointer<ffi.Char> path,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_opendir(
+    return _smb2_opendir_async(
       smb2,
       path,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_opendirPtr = _lookup<
+  late final _smb2_opendir_asyncPtr = _lookup<
       ffi.NativeFunction<
-          ffi.Pointer<smb2dir> Function(ffi.Pointer<smb2_context>,
-              ffi.Pointer<ffi.Char>)>>('smb2_opendir');
-  late final _smb2_opendir = _smb2_opendirPtr.asFunction<
-      ffi.Pointer<smb2dir> Function(
-          ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>)>();
+          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
+              smb2_command_cb, ffi.Pointer<ffi.Void>)>>('smb2_opendir_async');
+  late final _smb2_opendir_async = _smb2_opendir_asyncPtr.asFunction<
+      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
+          smb2_command_cb, ffi.Pointer<ffi.Void>)>();
 
   /// closedir()
   void smb2_closedir(
@@ -487,62 +510,79 @@ class LibSmb2Bindings {
       ffi.Pointer<smb2dirent> Function(
           ffi.Pointer<smb2_context>, ffi.Pointer<smb2dir>)>();
 
-  /// Sync open()
-  ffi.Pointer<smb2fh> smb2_open(
+  int smb2_open_async(
     ffi.Pointer<smb2_context> smb2,
     ffi.Pointer<ffi.Char> path,
     int flags,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_open(
+    return _smb2_open_async(
       smb2,
       path,
       flags,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_openPtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Pointer<smb2fh> Function(ffi.Pointer<smb2_context>,
-              ffi.Pointer<ffi.Char>, ffi.Int)>>('smb2_open');
-  late final _smb2_open = _smb2_openPtr.asFunction<
-      ffi.Pointer<smb2fh> Function(
-          ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>, int)>();
-
-  /// Sync close()
-  int smb2_close(
-    ffi.Pointer<smb2_context> smb2,
-    ffi.Pointer<smb2fh> fh,
-  ) {
-    return _smb2_close(
-      smb2,
-      fh,
-    );
-  }
-
-  late final _smb2_closePtr = _lookup<
+  late final _smb2_open_asyncPtr = _lookup<
       ffi.NativeFunction<
           ffi.Int Function(
-              ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>)>>('smb2_close');
-  late final _smb2_close = _smb2_closePtr.asFunction<
-      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>)>();
+              ffi.Pointer<smb2_context>,
+              ffi.Pointer<ffi.Char>,
+              ffi.Int,
+              smb2_command_cb,
+              ffi.Pointer<ffi.Void>)>>('smb2_open_async');
+  late final _smb2_open_async = _smb2_open_asyncPtr.asFunction<
+      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>, int,
+          smb2_command_cb, ffi.Pointer<ffi.Void>)>();
 
-  /// Sync fsync()
-  int smb2_fsync(
+  /// CLOSE
+  int smb2_close_async(
     ffi.Pointer<smb2_context> smb2,
     ffi.Pointer<smb2fh> fh,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_fsync(
+    return _smb2_close_async(
       smb2,
       fh,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_fsyncPtr = _lookup<
+  late final _smb2_close_asyncPtr = _lookup<
       ffi.NativeFunction<
-          ffi.Int Function(
-              ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>)>>('smb2_fsync');
-  late final _smb2_fsync = _smb2_fsyncPtr.asFunction<
-      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>)>();
+          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>,
+              smb2_command_cb, ffi.Pointer<ffi.Void>)>>('smb2_close_async');
+  late final _smb2_close_async = _smb2_close_asyncPtr.asFunction<
+      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>,
+          smb2_command_cb, ffi.Pointer<ffi.Void>)>();
+
+  /// FSYNC
+  int smb2_fsync_async(
+    ffi.Pointer<smb2_context> smb2,
+    ffi.Pointer<smb2fh> fh,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
+  ) {
+    return _smb2_fsync_async(
+      smb2,
+      fh,
+      cb,
+      cb_data,
+    );
+  }
+
+  late final _smb2_fsync_asyncPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>,
+              smb2_command_cb, ffi.Pointer<ffi.Void>)>>('smb2_fsync_async');
+  late final _smb2_fsync_async = _smb2_fsync_asyncPtr.asFunction<
+      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>,
+          smb2_command_cb, ffi.Pointer<ffi.Void>)>();
 
   /// GetMaxReadWriteSize SMB2 servers have a maximum size for read/write data
   /// that they support.
@@ -574,350 +614,415 @@ class LibSmb2Bindings {
   late final _smb2_get_max_write_size = _smb2_get_max_write_sizePtr
       .asFunction<int Function(ffi.Pointer<smb2_context>)>();
 
-  /// Sync pread() Use smb2_get_max_read_size to discover the maximum data size
-  /// that the server supports.
-  int smb2_pread(
+  /// PREAD
+  int smb2_pread_async(
     ffi.Pointer<smb2_context> smb2,
     ffi.Pointer<smb2fh> fh,
     ffi.Pointer<ffi.Uint8> buf,
     int count,
     int offset,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_pread(
+    return _smb2_pread_async(
       smb2,
       fh,
       buf,
       count,
       offset,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_preadPtr = _lookup<
+  late final _smb2_pread_asyncPtr = _lookup<
       ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>,
-              ffi.Pointer<ffi.Uint8>, ffi.Uint32, ffi.Uint64)>>('smb2_pread');
-  late final _smb2_pread = _smb2_preadPtr.asFunction<
-      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>,
-          ffi.Pointer<ffi.Uint8>, int, int)>();
+          ffi.Int Function(
+              ffi.Pointer<smb2_context>,
+              ffi.Pointer<smb2fh>,
+              ffi.Pointer<ffi.Uint8>,
+              ffi.Uint32,
+              ffi.Uint64,
+              smb2_command_cb,
+              ffi.Pointer<ffi.Void>)>>('smb2_pread_async');
+  late final _smb2_pread_async = _smb2_pread_asyncPtr.asFunction<
+      int Function(
+          ffi.Pointer<smb2_context>,
+          ffi.Pointer<smb2fh>,
+          ffi.Pointer<ffi.Uint8>,
+          int,
+          int,
+          smb2_command_cb,
+          ffi.Pointer<ffi.Void>)>();
 
-  /// Sync pwrite() Use smb2_get_max_write_size to discover the maximum data
-  /// size that the server supports.
-  int smb2_pwrite(
+  /// PWRITE
+  int smb2_pwrite_async(
     ffi.Pointer<smb2_context> smb2,
     ffi.Pointer<smb2fh> fh,
     ffi.Pointer<ffi.Uint8> buf,
     int count,
     int offset,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_pwrite(
+    return _smb2_pwrite_async(
       smb2,
       fh,
       buf,
       count,
       offset,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_pwritePtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>,
-              ffi.Pointer<ffi.Uint8>, ffi.Uint32, ffi.Uint64)>>('smb2_pwrite');
-  late final _smb2_pwrite = _smb2_pwritePtr.asFunction<
-      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>,
-          ffi.Pointer<ffi.Uint8>, int, int)>();
-
-  /// Sync read()
-  int smb2_read(
-    ffi.Pointer<smb2_context> smb2,
-    ffi.Pointer<smb2fh> fh,
-    ffi.Pointer<ffi.Uint8> buf,
-    int count,
-  ) {
-    return _smb2_read(
-      smb2,
-      fh,
-      buf,
-      count,
-    );
-  }
-
-  late final _smb2_readPtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>,
-              ffi.Pointer<ffi.Uint8>, ffi.Uint32)>>('smb2_read');
-  late final _smb2_read = _smb2_readPtr.asFunction<
-      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>,
-          ffi.Pointer<ffi.Uint8>, int)>();
-
-  /// Sync write()
-  int smb2_write(
-    ffi.Pointer<smb2_context> smb2,
-    ffi.Pointer<smb2fh> fh,
-    ffi.Pointer<ffi.Uint8> buf,
-    int count,
-  ) {
-    return _smb2_write(
-      smb2,
-      fh,
-      buf,
-      count,
-    );
-  }
-
-  late final _smb2_writePtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>,
-              ffi.Pointer<ffi.Uint8>, ffi.Uint32)>>('smb2_write');
-  late final _smb2_write = _smb2_writePtr.asFunction<
-      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>,
-          ffi.Pointer<ffi.Uint8>, int)>();
-
-  /// Sync unlink()
-  int smb2_unlink(
-    ffi.Pointer<smb2_context> smb2,
-    ffi.Pointer<ffi.Char> path,
-  ) {
-    return _smb2_unlink(
-      smb2,
-      path,
-    );
-  }
-
-  late final _smb2_unlinkPtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<smb2_context>,
-              ffi.Pointer<ffi.Char>)>>('smb2_unlink');
-  late final _smb2_unlink = _smb2_unlinkPtr.asFunction<
-      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>)>();
-
-  /// Sync rmdir()
-  int smb2_rmdir(
-    ffi.Pointer<smb2_context> smb2,
-    ffi.Pointer<ffi.Char> path,
-  ) {
-    return _smb2_rmdir(
-      smb2,
-      path,
-    );
-  }
-
-  late final _smb2_rmdirPtr = _lookup<
+  late final _smb2_pwrite_asyncPtr = _lookup<
       ffi.NativeFunction<
           ffi.Int Function(
-              ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>)>>('smb2_rmdir');
-  late final _smb2_rmdir = _smb2_rmdirPtr.asFunction<
-      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>)>();
+              ffi.Pointer<smb2_context>,
+              ffi.Pointer<smb2fh>,
+              ffi.Pointer<ffi.Uint8>,
+              ffi.Uint32,
+              ffi.Uint64,
+              smb2_command_cb,
+              ffi.Pointer<ffi.Void>)>>('smb2_pwrite_async');
+  late final _smb2_pwrite_async = _smb2_pwrite_asyncPtr.asFunction<
+      int Function(
+          ffi.Pointer<smb2_context>,
+          ffi.Pointer<smb2fh>,
+          ffi.Pointer<ffi.Uint8>,
+          int,
+          int,
+          smb2_command_cb,
+          ffi.Pointer<ffi.Void>)>();
 
-  /// Sync mkdir()
-  int smb2_mkdir(
+  /// UNLINK
+  int smb2_unlink_async(
     ffi.Pointer<smb2_context> smb2,
     ffi.Pointer<ffi.Char> path,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_mkdir(
+    return _smb2_unlink_async(
       smb2,
       path,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_mkdirPtr = _lookup<
+  late final _smb2_unlink_asyncPtr = _lookup<
       ffi.NativeFunction<
-          ffi.Int Function(
-              ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>)>>('smb2_mkdir');
-  late final _smb2_mkdir = _smb2_mkdirPtr.asFunction<
-      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>)>();
+          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
+              smb2_command_cb, ffi.Pointer<ffi.Void>)>>('smb2_unlink_async');
+  late final _smb2_unlink_async = _smb2_unlink_asyncPtr.asFunction<
+      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
+          smb2_command_cb, ffi.Pointer<ffi.Void>)>();
 
-  /// Sync statvfs()
-  int smb2_statvfs(
+  /// RMDIR
+  int smb2_rmdir_async(
+    ffi.Pointer<smb2_context> smb2,
+    ffi.Pointer<ffi.Char> path,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
+  ) {
+    return _smb2_rmdir_async(
+      smb2,
+      path,
+      cb,
+      cb_data,
+    );
+  }
+
+  late final _smb2_rmdir_asyncPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
+              smb2_command_cb, ffi.Pointer<ffi.Void>)>>('smb2_rmdir_async');
+  late final _smb2_rmdir_async = _smb2_rmdir_asyncPtr.asFunction<
+      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
+          smb2_command_cb, ffi.Pointer<ffi.Void>)>();
+
+  /// MKDIR
+  int smb2_mkdir_async(
+    ffi.Pointer<smb2_context> smb2,
+    ffi.Pointer<ffi.Char> path,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
+  ) {
+    return _smb2_mkdir_async(
+      smb2,
+      path,
+      cb,
+      cb_data,
+    );
+  }
+
+  late final _smb2_mkdir_asyncPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
+              smb2_command_cb, ffi.Pointer<ffi.Void>)>>('smb2_mkdir_async');
+  late final _smb2_mkdir_async = _smb2_mkdir_asyncPtr.asFunction<
+      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
+          smb2_command_cb, ffi.Pointer<ffi.Void>)>();
+
+  /// STATVFS
+  int smb2_statvfs_async(
     ffi.Pointer<smb2_context> smb2,
     ffi.Pointer<ffi.Char> path,
     ffi.Pointer<Smb2StatVfsNative> statvfs,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_statvfs(
+    return _smb2_statvfs_async(
       smb2,
       path,
       statvfs,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_statvfsPtr = _lookup<
+  late final _smb2_statvfs_asyncPtr = _lookup<
       ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
-              ffi.Pointer<Smb2StatVfsNative>)>>('smb2_statvfs');
-  late final _smb2_statvfs = _smb2_statvfsPtr.asFunction<
-      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
-          ffi.Pointer<Smb2StatVfsNative>)>();
+          ffi.Int Function(
+              ffi.Pointer<smb2_context>,
+              ffi.Pointer<ffi.Char>,
+              ffi.Pointer<Smb2StatVfsNative>,
+              smb2_command_cb,
+              ffi.Pointer<ffi.Void>)>>('smb2_statvfs_async');
+  late final _smb2_statvfs_async = _smb2_statvfs_asyncPtr.asFunction<
+      int Function(
+          ffi.Pointer<smb2_context>,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<Smb2StatVfsNative>,
+          smb2_command_cb,
+          ffi.Pointer<ffi.Void>)>();
 
-  /// Sync fstat()
-  int smb2_fstat(
+  /// FSTAT
+  int smb2_fstat_async(
     ffi.Pointer<smb2_context> smb2,
     ffi.Pointer<smb2fh> fh,
     ffi.Pointer<smb2_stat_64> st,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_fstat(
+    return _smb2_fstat_async(
       smb2,
       fh,
       st,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_fstatPtr = _lookup<
+  late final _smb2_fstat_asyncPtr = _lookup<
       ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>,
-              ffi.Pointer<smb2_stat_64>)>>('smb2_fstat');
-  late final _smb2_fstat = _smb2_fstatPtr.asFunction<
+          ffi.Int Function(
+              ffi.Pointer<smb2_context>,
+              ffi.Pointer<smb2fh>,
+              ffi.Pointer<smb2_stat_64>,
+              smb2_command_cb,
+              ffi.Pointer<ffi.Void>)>>('smb2_fstat_async');
+  late final _smb2_fstat_async = _smb2_fstat_asyncPtr.asFunction<
       int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>,
-          ffi.Pointer<smb2_stat_64>)>();
+          ffi.Pointer<smb2_stat_64>, smb2_command_cb, ffi.Pointer<ffi.Void>)>();
 
-  /// Sync stat()
-  int smb2_stat(
+  /// Async stat()
+  int smb2_stat_async(
     ffi.Pointer<smb2_context> smb2,
     ffi.Pointer<ffi.Char> path,
     ffi.Pointer<smb2_stat_64> st,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_stat(
+    return _smb2_stat_async(
       smb2,
       path,
       st,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_statPtr = _lookup<
+  late final _smb2_stat_asyncPtr = _lookup<
       ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
-              ffi.Pointer<smb2_stat_64>)>>('smb2_stat');
-  late final _smb2_stat = _smb2_statPtr.asFunction<
+          ffi.Int Function(
+              ffi.Pointer<smb2_context>,
+              ffi.Pointer<ffi.Char>,
+              ffi.Pointer<smb2_stat_64>,
+              smb2_command_cb,
+              ffi.Pointer<ffi.Void>)>>('smb2_stat_async');
+  late final _smb2_stat_async = _smb2_stat_asyncPtr.asFunction<
       int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
-          ffi.Pointer<smb2_stat_64>)>();
+          ffi.Pointer<smb2_stat_64>, smb2_command_cb, ffi.Pointer<ffi.Void>)>();
 
-  /// Sync rename()
-  int smb2_rename(
+  /// Async rename()
+  int smb2_rename_async(
     ffi.Pointer<smb2_context> smb2,
     ffi.Pointer<ffi.Char> oldpath,
     ffi.Pointer<ffi.Char> newpath,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_rename(
+    return _smb2_rename_async(
       smb2,
       oldpath,
       newpath,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_renamePtr = _lookup<
+  late final _smb2_rename_asyncPtr = _lookup<
       ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
-              ffi.Pointer<ffi.Char>)>>('smb2_rename');
-  late final _smb2_rename = _smb2_renamePtr.asFunction<
+          ffi.Int Function(
+              ffi.Pointer<smb2_context>,
+              ffi.Pointer<ffi.Char>,
+              ffi.Pointer<ffi.Char>,
+              smb2_command_cb,
+              ffi.Pointer<ffi.Void>)>>('smb2_rename_async');
+  late final _smb2_rename_async = _smb2_rename_asyncPtr.asFunction<
       int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
-          ffi.Pointer<ffi.Char>)>();
+          ffi.Pointer<ffi.Char>, smb2_command_cb, ffi.Pointer<ffi.Void>)>();
 
-  /// Sync truncate() Function returns 0 : Success -errno : An error occurred.
-  int smb2_truncate(
+  /// Async truncate()
+  int smb2_truncate_async(
     ffi.Pointer<smb2_context> smb2,
     ffi.Pointer<ffi.Char> path,
     int length,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_truncate(
+    return _smb2_truncate_async(
       smb2,
       path,
       length,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_truncatePtr = _lookup<
+  late final _smb2_truncate_asyncPtr = _lookup<
       ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
-              ffi.Uint64)>>('smb2_truncate');
-  late final _smb2_truncate = _smb2_truncatePtr.asFunction<
-      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>, int)>();
+          ffi.Int Function(
+              ffi.Pointer<smb2_context>,
+              ffi.Pointer<ffi.Char>,
+              ffi.Uint64,
+              smb2_command_cb,
+              ffi.Pointer<ffi.Void>)>>('smb2_truncate_async');
+  late final _smb2_truncate_async = _smb2_truncate_asyncPtr.asFunction<
+      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>, int,
+          smb2_command_cb, ffi.Pointer<ffi.Void>)>();
 
-  /// Sync ftruncate() Function returns 0 : Success -errno : An error occurred.
-  int smb2_ftruncate(
+  /// Async ftruncate()
+  int smb2_ftruncate_async(
     ffi.Pointer<smb2_context> smb2,
     ffi.Pointer<smb2fh> fh,
     int length,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_ftruncate(
+    return _smb2_ftruncate_async(
       smb2,
       fh,
       length,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_ftruncatePtr = _lookup<
+  late final _smb2_ftruncate_asyncPtr = _lookup<
       ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>,
-              ffi.Uint64)>>('smb2_ftruncate');
-  late final _smb2_ftruncate = _smb2_ftruncatePtr.asFunction<
-      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>, int)>();
+          ffi.Int Function(
+              ffi.Pointer<smb2_context>,
+              ffi.Pointer<smb2fh>,
+              ffi.Uint64,
+              smb2_command_cb,
+              ffi.Pointer<ffi.Void>)>>('smb2_ftruncate_async');
+  late final _smb2_ftruncate_async = _smb2_ftruncate_asyncPtr.asFunction<
+      int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2fh>, int,
+          smb2_command_cb, ffi.Pointer<ffi.Void>)>();
 
-  /// Sync readlink()
-  int smb2_readlink(
+  /// READLINK
+  int smb2_readlink_async(
     ffi.Pointer<smb2_context> smb2,
     ffi.Pointer<ffi.Char> path,
-    ffi.Pointer<ffi.Char> buf,
-    int bufsiz,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_readlink(
+    return _smb2_readlink_async(
       smb2,
       path,
-      buf,
-      bufsiz,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_readlinkPtr = _lookup<
+  late final _smb2_readlink_asyncPtr = _lookup<
       ffi.NativeFunction<
           ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
-              ffi.Pointer<ffi.Char>, ffi.Uint32)>>('smb2_readlink');
-  late final _smb2_readlink = _smb2_readlinkPtr.asFunction<
+              smb2_command_cb, ffi.Pointer<ffi.Void>)>>('smb2_readlink_async');
+  late final _smb2_readlink_async = _smb2_readlink_asyncPtr.asFunction<
       int Function(ffi.Pointer<smb2_context>, ffi.Pointer<ffi.Char>,
-          ffi.Pointer<ffi.Char>, int)>();
+          smb2_command_cb, ffi.Pointer<ffi.Void>)>();
 
-  /// Sync echo()
-  int smb2_echo(
+  /// Async echo()
+  int smb2_echo_async(
     ffi.Pointer<smb2_context> smb2,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_echo(
+    return _smb2_echo_async(
       smb2,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_echoPtr =
-      _lookup<ffi.NativeFunction<ffi.Int Function(ffi.Pointer<smb2_context>)>>(
-          'smb2_echo');
-  late final _smb2_echo =
-      _smb2_echoPtr.asFunction<int Function(ffi.Pointer<smb2_context>)>();
+  late final _smb2_echo_asyncPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<smb2_context>, smb2_command_cb,
+              ffi.Pointer<ffi.Void>)>>('smb2_echo_async');
+  late final _smb2_echo_async = _smb2_echo_asyncPtr.asFunction<
+      int Function(
+          ffi.Pointer<smb2_context>, smb2_command_cb, ffi.Pointer<ffi.Void>)>();
 
-  late final ffi.Pointer<p_syntax_id_t> _lsa_interface =
-      _lookup<p_syntax_id_t>('lsa_interface');
+  late final ffi.Pointer<p_syntax_id> _lsa_interface =
+      _lookup<p_syntax_id>('lsa_interface');
 
-  p_syntax_id_t get lsa_interface => _lsa_interface.ref;
+  p_syntax_id get lsa_interface => _lsa_interface.ref;
 
-  late final ffi.Pointer<p_syntax_id_t> _srvsvc_interface =
-      _lookup<p_syntax_id_t>('srvsvc_interface');
+  late final ffi.Pointer<p_syntax_id> _srvsvc_interface =
+      _lookup<p_syntax_id>('srvsvc_interface');
 
-  p_syntax_id_t get srvsvc_interface => _srvsvc_interface.ref;
+  p_syntax_id get srvsvc_interface => _srvsvc_interface.ref;
 
-  /// Sync share_enum() This function only works when connected to the IPC$
+  /// Async share_enum() This function only works when connected to the IPC$
   /// share.
-  ffi.Pointer<srvsvc_NetrShareEnum_rep> smb2_share_enum_sync(
+  int smb2_share_enum_async(
     ffi.Pointer<smb2_context> smb2,
     SHARE_INFO_enum level,
+    smb2_command_cb cb,
+    ffi.Pointer<ffi.Void> cb_data,
   ) {
-    return _smb2_share_enum_sync(
+    return _smb2_share_enum_async(
       smb2,
       level.value,
+      cb,
+      cb_data,
     );
   }
 
-  late final _smb2_share_enum_syncPtr = _lookup<
+  late final _smb2_share_enum_asyncPtr = _lookup<
       ffi.NativeFunction<
-          ffi.Pointer<srvsvc_NetrShareEnum_rep> Function(
+          ffi.Int Function(
               ffi.Pointer<smb2_context>,
-              ffi.UnsignedInt)>>('smb2_share_enum_sync');
-  late final _smb2_share_enum_sync = _smb2_share_enum_syncPtr.asFunction<
-      ffi.Pointer<srvsvc_NetrShareEnum_rep> Function(
-          ffi.Pointer<smb2_context>, int)>();
+              ffi.UnsignedInt,
+              smb2_command_cb,
+              ffi.Pointer<ffi.Void>)>>('smb2_share_enum_async');
+  late final _smb2_share_enum_async = _smb2_share_enum_asyncPtr.asFunction<
+      int Function(ffi.Pointer<smb2_context>, int, smb2_command_cb,
+          ffi.Pointer<ffi.Void>)>();
 
   /// Low level RAW SMB2 interface
   late final ffi.Pointer<ffi.Uint8> _compound_file_id =
@@ -1098,81 +1203,15 @@ final class smb2_lease_break_reply extends ffi.Struct {
   external int lease_duration;
 }
 
-final class UnnamedUnion$1 extends ffi.Union {
-  external smb2_oplock_break_notification oplock;
-
-  external smb2_oplock_break_reply oplockrep;
-
-  external smb2_lease_break_notification lease;
-
-  external smb2_lease_break_reply leaserep;
-}
-
-/// note that for oplocks, notifications (request) and responses (reply) come
-/// from the server, while acknowledgements come from the client
-final class smb2_oplock_or_lease_break_reply extends ffi.Struct {
-  @ffi.Uint16()
-  external int struct_size;
-
-  @ffi.Int()
-  external int break_type;
-
-  external UnnamedUnion$1 lock;
-}
-
-typedef smb2_command_cbFunction = ffi.Void Function(
-    ffi.Pointer<smb2_context> smb2,
-    ffi.Int status,
-    ffi.Pointer<ffi.Void> command_data,
-    ffi.Pointer<ffi.Void> cb_data);
-typedef Dartsmb2_command_cbFunction = void Function(
-    ffi.Pointer<smb2_context> smb2,
-    int status,
-    ffi.Pointer<ffi.Void> command_data,
-    ffi.Pointer<ffi.Void> cb_data);
-
 /// Generic callback for completion of smb2_*_async(). command_data depends on
 /// status.
-typedef smb2_command_cb
-    = ffi.Pointer<ffi.NativeFunction<smb2_command_cbFunction>>;
-typedef smb2_error_cbFunction = ffi.Void Function(
-    ffi.Pointer<smb2_context> smb2, ffi.Pointer<ffi.Char> error_string);
-typedef Dartsmb2_error_cbFunction = void Function(
-    ffi.Pointer<smb2_context> smb2, ffi.Pointer<ffi.Char> error_string);
-
-/// callback for getting error information when errors are set command_data
-/// depends on status.
-typedef smb2_error_cb = ffi.Pointer<ffi.NativeFunction<smb2_error_cbFunction>>;
-typedef smb2_accepted_cbFunction = ffi.Int Function(
-    ffi.Int fd, ffi.Pointer<ffi.Void> cb_data);
-typedef Dartsmb2_accepted_cbFunction = int Function(
-    int fd, ffi.Pointer<ffi.Void> cb_data);
-
-/// callback for server accepting a new connection
-typedef smb2_accepted_cb
-    = ffi.Pointer<ffi.NativeFunction<smb2_accepted_cbFunction>>;
-typedef smb2_client_connectionFunction = ffi.Void Function(
-    ffi.Pointer<smb2_context> smb2, ffi.Pointer<ffi.Void> cb_data);
-typedef Dartsmb2_client_connectionFunction = void Function(
-    ffi.Pointer<smb2_context> smb2, ffi.Pointer<ffi.Void> cb_data);
-
-/// callback when a new connection is made to setup context
-typedef smb2_client_connection
-    = ffi.Pointer<ffi.NativeFunction<smb2_client_connectionFunction>>;
-typedef smb2_oplock_or_lease_break_cbFunction = ffi.Void Function(
-    ffi.Pointer<smb2_context> smb2,
-    ffi.Int status,
-    ffi.Pointer<smb2_oplock_or_lease_break_reply> rep,
-    ffi.Pointer<ffi.Uint8> new_oplock_level,
-    ffi.Pointer<ffi.Uint32> new_lease_state);
-typedef Dartsmb2_oplock_or_lease_break_cbFunction = void Function(
-    ffi.Pointer<smb2_context> smb2,
-    int status,
-    ffi.Pointer<smb2_oplock_or_lease_break_reply> rep,
-    ffi.Pointer<ffi.Uint8> new_oplock_level,
-    ffi.Pointer<ffi.Uint32> new_lease_state);
-typedef smb2_oplock_or_lease_break_cb
-    = ffi.Pointer<ffi.NativeFunction<smb2_oplock_or_lease_break_cbFunction>>;
+typedef smb2_command_cb = ffi.Pointer<
+    ffi.NativeFunction<
+        ffi.Void Function(
+            ffi.Pointer<smb2_context> smb2,
+            ffi.Int status,
+            ffi.Pointer<ffi.Void> command_data,
+            ffi.Pointer<ffi.Void> cb_data)>>;
 
 final class smb2_stat_64 extends ffi.Struct {
   @ffi.Uint32()
@@ -1253,21 +1292,6 @@ final class smb2dirent extends ffi.Struct {
   external smb2_stat_64 st;
 }
 
-typedef t_socket = ffi.Int;
-typedef Dartt_socket = int;
-typedef smb2_change_fd_cbFunction = ffi.Void Function(
-    ffi.Pointer<smb2_context> smb2, t_socket fd, ffi.Int cmd);
-typedef Dartsmb2_change_fd_cbFunction = void Function(
-    ffi.Pointer<smb2_context> smb2, Dartt_socket fd, int cmd);
-typedef smb2_change_fd_cb
-    = ffi.Pointer<ffi.NativeFunction<smb2_change_fd_cbFunction>>;
-typedef smb2_change_events_cbFunction = ffi.Void Function(
-    ffi.Pointer<smb2_context> smb2, t_socket fd, ffi.Int events);
-typedef Dartsmb2_change_events_cbFunction = void Function(
-    ffi.Pointer<smb2_context> smb2, Dartt_socket fd, int events);
-typedef smb2_change_events_cb
-    = ffi.Pointer<ffi.NativeFunction<smb2_change_events_cbFunction>>;
-
 /// Set which version of SMB to negotiate. Default is to let the server pick the
 /// version.
 enum smb2_negotiate_version {
@@ -1308,22 +1332,6 @@ final class smb2_libversion extends ffi.Struct {
   external int patch_version;
 }
 
-enum smb2_sec {
-  SMB2_SEC_UNDEFINED(0),
-  SMB2_SEC_NTLMSSP(1),
-  SMB2_SEC_KRB5(2);
-
-  final int value;
-  const smb2_sec(this.value);
-
-  static smb2_sec fromValue(int value) => switch (value) {
-        0 => SMB2_SEC_UNDEFINED,
-        1 => SMB2_SEC_NTLMSSP,
-        2 => SMB2_SEC_KRB5,
-        _ => throw ArgumentError('Unknown value for smb2_sec: $value'),
-      };
-}
-
 /// OPENDIR
 final class smb2dir extends ffi.Opaque {}
 
@@ -1335,26 +1343,6 @@ final class smb2_utf16 extends ffi.Struct {
   @ffi.Array.multi([1])
   external ffi.Array<ffi.Uint16> val;
 }
-
-final class dcerpc_context extends ffi.Opaque {}
-
-final class dcerpc_pdu extends ffi.Opaque {}
-
-typedef dcerpc_coderFunction = ffi.Int Function(
-    ffi.Pointer<dcerpc_context> dce,
-    ffi.Pointer<dcerpc_pdu> pdu,
-    ffi.Pointer<smb2_iovec> iov,
-    ffi.Pointer<ffi.Int> offset,
-    ffi.Pointer<ffi.Void> ptr);
-typedef Dartdcerpc_coderFunction = int Function(
-    ffi.Pointer<dcerpc_context> dce,
-    ffi.Pointer<dcerpc_pdu> pdu,
-    ffi.Pointer<smb2_iovec> iov,
-    ffi.Pointer<ffi.Int> offset,
-    ffi.Pointer<ffi.Void> ptr);
-
-/// Encoder/Decoder for a DCERPC object
-typedef dcerpc_coder = ffi.Pointer<ffi.NativeFunction<dcerpc_coderFunction>>;
 
 enum ptr_type {
   PTR_REF(0),
@@ -1386,10 +1374,8 @@ final class dcerpc_uuid extends ffi.Struct {
   external ffi.Array<ffi.Uint8> v4;
 }
 
-typedef dcerpc_uuid_t = dcerpc_uuid;
-
 final class p_syntax_id extends ffi.Struct {
-  external dcerpc_uuid_t uuid;
+  external dcerpc_uuid uuid;
 
   @ffi.Uint16()
   external int vers;
@@ -1397,8 +1383,6 @@ final class p_syntax_id extends ffi.Struct {
   @ffi.Uint16()
   external int vers_minor;
 }
-
-typedef p_syntax_id_t = p_syntax_id;
 
 final class dcerpc_utf16 extends ffi.Struct {
   /// internal use only
@@ -1418,18 +1402,6 @@ final class dcerpc_utf16 extends ffi.Struct {
 
   external ffi.Pointer<ffi.Char> utf8;
 }
-
-typedef dcerpc_cbFunction = ffi.Void Function(
-    ffi.Pointer<dcerpc_context> dce,
-    ffi.Int status,
-    ffi.Pointer<ffi.Void> command_data,
-    ffi.Pointer<ffi.Void> cb_data);
-typedef Dartdcerpc_cbFunction = void Function(
-    ffi.Pointer<dcerpc_context> dce,
-    int status,
-    ffi.Pointer<ffi.Void> command_data,
-    ffi.Pointer<ffi.Void> cb_data);
-typedef dcerpc_cb = ffi.Pointer<ffi.NativeFunction<dcerpc_cbFunction>>;
 
 enum SHARE_INFO_enum {
   SHARE_INFO_0(0),

@@ -11,8 +11,13 @@
 /// lifecycle, path NUL validation, error → typed exception classification,
 /// POSIX open-flag dispatch, and chunked pwrite.
 ///
-/// There is no intermediate C wrapper: this calls libsmb2 directly
-/// through the generated bindings.
+/// There is no intermediate C wrapper *and no dependency on libsmb2's own
+/// sync wrappers*: every operation is started through the upstream
+/// `*_async` API and driven to completion by the Dart-side event pump in
+/// `lib/src/ffi/event_pump.dart`. This is what lets the package link
+/// against **unmodified upstream libsmb2** — see the pump's docs for the
+/// two sync-wrapper bugs (EINTR aborts, swallowed completion statuses)
+/// that previously required patched binaries.
 ///
 /// **Thread-safety caveat**: `smb2_init_context` / `smb2_destroy_context`
 /// mutate a global `active_contexts` linked list in libsmb2's `init.c`
@@ -30,6 +35,7 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import 'ffi/event_pump.dart';
 import 'ffi/libsmb2_bindings.dart';
 import 'ffi/native_lib.dart';
 import 'smb2_error_type.dart';
@@ -65,8 +71,13 @@ class Smb2Handle {
 class Smb2Client implements Finalizable {
   final DynamicLibrary _lib;
   final LibSmb2Bindings _native;
+  late final Smb2EventPump _pump = Smb2EventPump(_native);
   Pointer<smb2_context> _ctx = nullptr;
   late final NativeFinalizer _finalizer;
+
+  /// Timeout (seconds) applied to every operation on the connected
+  /// context; mirrors the value passed to `smb2_set_timeout`. 0 = none.
+  int _timeoutSeconds = 0;
 
   Smb2Client._(this._lib) : _native = LibSmb2Bindings(_lib) {
     // Last-resort safety net for a leaked client: free the libsmb2
@@ -131,18 +142,42 @@ class Smb2Client implements Finalizable {
         final pHost = host.toNativeUtf8(allocator: arena).cast<Char>();
         final pIpc = r'IPC$'.toNativeUtf8(allocator: arena).cast<Char>();
         final pUser = (user ?? '').toNativeUtf8(allocator: arena).cast<Char>();
-        final rc = _native.smb2_connect_share(ctx, pHost, pIpc, pUser);
-        if (rc < 0) throw _makeError(_native, ctx, 'Connect to IPC\$ failed');
+        final res = _pump.run(
+          ctx,
+          opName: 'Connect to IPC\$ failed',
+          start: (cb, cbData) => _native.smb2_connect_share_async(
+            ctx,
+            pHost,
+            pIpc,
+            pUser,
+            cb,
+            cbData,
+          ),
+          timeoutSeconds: timeoutSeconds,
+        );
+        if (res.status < 0) {
+          throw _makeError(ctx, 'Connect to IPC\$ failed', -res.status);
+        }
       });
 
       try {
         // SHARE_INFO_1 is value 1 in libsmb2's header — pass the typed enum
         // so it survives any future re-ordering of values upstream.
-        final rep =
-            _native.smb2_share_enum_sync(ctx, SHARE_INFO_enum.SHARE_INFO_1);
-        if (rep == nullptr) {
-          throw _makeError(_native, ctx, 'Share enumeration failed');
+        final res = _pump.run(
+          ctx,
+          opName: 'Share enumeration failed',
+          start: (cb, cbData) => _native.smb2_share_enum_async(
+            ctx,
+            SHARE_INFO_enum.SHARE_INFO_1,
+            cb,
+            cbData,
+          ),
+          timeoutSeconds: timeoutSeconds,
+        );
+        if (res.status < 0 || res.data == nullptr) {
+          throw _makeError(ctx, 'Share enumeration failed', -res.status);
         }
+        final rep = res.data.cast<srvsvc_NetrShareEnum_rep>();
 
         try {
           // Anonymous unions in C are wrapped by ffigen as an extra
@@ -171,7 +206,7 @@ class Smb2Client implements Finalizable {
           _native.smb2_free_data(ctx, rep.cast());
         }
       } finally {
-        _native.smb2_disconnect_share(ctx);
+        _disconnectQuiet(ctx);
       }
     } finally {
       _native.smb2_destroy_context(ctx);
@@ -228,8 +263,22 @@ class Smb2Client implements Finalizable {
         final pHost = host.toNativeUtf8(allocator: arena).cast<Char>();
         final pShare = share.toNativeUtf8(allocator: arena).cast<Char>();
         final pUser = (user ?? '').toNativeUtf8(allocator: arena).cast<Char>();
-        final rc = _native.smb2_connect_share(ctx, pHost, pShare, pUser);
-        if (rc < 0) throw _makeError(_native, ctx, 'Connect failed');
+        final res = _pump.run(
+          ctx,
+          opName: 'Connect failed',
+          start: (cb, cbData) => _native.smb2_connect_share_async(
+            ctx,
+            pHost,
+            pShare,
+            pUser,
+            cb,
+            cbData,
+          ),
+          timeoutSeconds: timeoutSeconds,
+        );
+        if (res.status < 0) {
+          throw _makeError(ctx, 'Connect failed', -res.status);
+        }
       });
     } catch (_) {
       // Release the context so we don't leak libsmb2 internal allocations.
@@ -238,19 +287,42 @@ class Smb2Client implements Finalizable {
     }
 
     _ctx = ctx;
+    _timeoutSeconds = timeoutSeconds;
     _finalizer.attach(this, _ctx.cast(), detach: this);
   }
 
   /// Disconnect from the share and release all resources.
   ///
-  /// Sends a wire-level logoff (`smb2_disconnect_share`) so the server can
-  /// reclaim the session, then frees the local context.
+  /// Sends a wire-level logoff (`smb2_disconnect_share_async`) so the
+  /// server can reclaim the session, then frees the local context.
   void disconnect() {
     if (_ctx == nullptr) return;
     _finalizer.detach(this);
-    _native.smb2_disconnect_share(_ctx);
+    _disconnectQuiet(_ctx);
     _native.smb2_destroy_context(_ctx);
     _ctx = nullptr;
+    // Safe to release the native callback now: any operation still pending
+    // inside libsmb2 died with the context above.
+    _pump.dispose();
+  }
+
+  /// Best-effort wire-level logoff. Failures are swallowed — the caller
+  /// destroys the context right after, which releases everything locally.
+  void _disconnectQuiet(Pointer<smb2_context> ctx) {
+    try {
+      // Completion status is ignored — nothing actionable on a failed
+      // logoff; the caller destroys the context right after.
+      _pump.run(
+        ctx,
+        opName: 'Disconnect',
+        start: (cb, cbData) =>
+            _native.smb2_disconnect_share_async(ctx, cb, cbData),
+        // Never hang a teardown path on a dead server.
+        timeoutSeconds: _disconnectTimeoutSeconds,
+      );
+    } on Smb2Exception {
+      // Best effort only.
+    }
   }
 
   /// Send a keepalive echo to the server.
@@ -260,9 +332,10 @@ class Smb2Client implements Finalizable {
   /// connection has been lost.
   void echo() {
     _ensureConnected();
-    if (_native.smb2_echo(_ctx) < 0) {
-      throw _makeError(_native, _ctx, 'Echo failed');
-    }
+    _checkedOp(
+      'Echo failed',
+      (cb, cbData) => _native.smb2_echo_async(_ctx, cb, cbData),
+    );
   }
 
   // ─── Directory listing ──────────────────────────────────────────────────
@@ -276,12 +349,19 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] if the directory cannot be opened.
   List<Smb2DirEntry> listDirectory(String path) {
     _ensureConnected();
+    // smb2_opendir_async fetches the complete listing; smb2_readdir /
+    // smb2_closedir below only walk / free that in-memory snapshot (no
+    // further network I/O, so no pump involvement).
     final dir = using((arena) {
-      final d = _native.smb2_opendir(_ctx, _path(path, arena));
-      if (d == nullptr) {
-        throw _makeError(_native, _ctx, 'Failed to list directory');
+      final p = _path(path, arena);
+      final res = _op(
+        'Failed to list directory',
+        (cb, cbData) => _native.smb2_opendir_async(_ctx, p, cb, cbData),
+      );
+      if (res.status < 0 || res.data == nullptr) {
+        throw _makeError(_ctx, 'Failed to list directory', -res.status);
       }
-      return d;
+      return res.data.cast<smb2dir>();
     });
 
     try {
@@ -311,23 +391,18 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on read failure.
   Uint8List readFileRange(String path, {int offset = 0, required int length}) {
     _ensureConnected();
-    final fh = using((arena) {
-      final h = _native.smb2_open(_ctx, _path(path, arena), _flags.rdonly);
-      if (h == nullptr) throw _makeError(_native, _ctx, 'Open failed');
-      return h;
-    });
+    final fh = _openHandle(path, _flags.rdonly, 'Open failed');
 
     final buf = malloc<Uint8>(length);
     try {
-      final n = _native.smb2_pread(_ctx, fh, buf, length, offset);
-      if (n < 0) {
-        malloc.free(buf);
-        throw _makeError(_native, _ctx, 'Read failed');
-      }
+      final n = _pread(fh, buf, length, offset, 'Read failed');
       // Zero-copy: Dart GC owns the native buffer via NativeFinalizer.
       return buf.asTypedList(n, finalizer: malloc.nativeFree);
+    } catch (_) {
+      malloc.free(buf);
+      rethrow;
     } finally {
-      _native.smb2_close(_ctx, fh);
+      _closeQuiet(fh);
     }
   }
 
@@ -340,26 +415,19 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on failure.
   Uint8List readFile(String path) {
     _ensureConnected();
-    final fh = using((arena) {
-      final h = _native.smb2_open(_ctx, _path(path, arena), _flags.rdonly);
-      if (h == nullptr) throw _makeError(_native, _ctx, 'Open failed');
-      return h;
-    });
+    final fh = _openHandle(path, _flags.rdonly, 'Open failed');
 
     try {
       return using((arena) {
         // Size up-front via fstat on the handle we just opened — avoids a
         // second path-based round-trip (and its TOCTOU window).
-        final st = arena<smb2_stat_64>();
-        if (_native.smb2_fstat(_ctx, fh, st) < 0) {
-          throw _makeError(_native, _ctx, 'Read file failed (fstat)');
-        }
-        final size = st.ref.smb2_size;
+        final size = _fstatSize(fh, 'Read file failed (fstat)');
         final out = Uint8List(size);
         if (size == 0) return out;
 
-        // libsmb2 internally splits at the negotiated MaxReadSize; we loop
-        // until we've drained the file, reusing one 1 MiB scratch buffer.
+        // libsmb2 clamps each request at the negotiated MaxReadSize; we
+        // loop until we've drained the file, reusing one 1 MiB scratch
+        // buffer.
         var offset = 0;
         const chunk = 1024 * 1024;
         final buf = malloc<Uint8>(chunk);
@@ -367,8 +435,7 @@ class Smb2Client implements Finalizable {
           while (offset < size) {
             final remaining = size - offset;
             final toRead = remaining < chunk ? remaining : chunk;
-            final n = _native.smb2_pread(_ctx, fh, buf, toRead, offset);
-            if (n < 0) throw _makeError(_native, _ctx, 'Read file failed');
+            final n = _pread(fh, buf, toRead, offset, 'Read file failed');
             if (n == 0) break; // unexpected EOF — file shrunk mid-read
             out.setRange(offset, offset + n, buf.asTypedList(n));
             offset += n;
@@ -380,7 +447,7 @@ class Smb2Client implements Finalizable {
         return offset == size ? out : Uint8List.sublistView(out, 0, offset);
       });
     } finally {
-      _native.smb2_close(_ctx, fh);
+      _closeQuiet(fh);
     }
   }
 
@@ -396,9 +463,11 @@ class Smb2Client implements Finalizable {
     _ensureConnected();
     return using((arena) {
       final out = arena<smb2_stat_64>();
-      if (_native.smb2_stat(_ctx, _path(path, arena), out) < 0) {
-        throw _makeError(_native, _ctx, 'Stat failed');
-      }
+      final p = _path(path, arena);
+      _checkedOp(
+        'Stat failed',
+        (cb, cbData) => _native.smb2_stat_async(_ctx, p, out, cb, cbData),
+      );
       return _statFromNative(out.ref);
     });
   }
@@ -410,9 +479,11 @@ class Smb2Client implements Finalizable {
     _ensureConnected();
     return using((arena) {
       final out = arena<smb2_stat_64>();
-      if (_native.smb2_stat(_ctx, _path(path, arena), out) < 0) {
-        throw _makeError(_native, _ctx, 'File size failed');
-      }
+      final p = _path(path, arena);
+      _checkedOp(
+        'File size failed',
+        (cb, cbData) => _native.smb2_stat_async(_ctx, p, out, cb, cbData),
+      );
       return out.ref.smb2_size;
     });
   }
@@ -426,9 +497,11 @@ class Smb2Client implements Finalizable {
     _ensureConnected();
     return using((arena) {
       final out = arena<Smb2StatVfsNative>();
-      if (_native.smb2_statvfs(_ctx, _path(path, arena), out) < 0) {
-        throw _makeError(_native, _ctx, 'Statvfs failed');
-      }
+      final p = _path(path, arena);
+      _checkedOp(
+        'Statvfs failed',
+        (cb, cbData) => _native.smb2_statvfs_async(_ctx, p, out, cb, cbData),
+      );
       final s = out.ref;
       return Smb2StatVfs(
         blockSize: s.f_bsize,
@@ -443,25 +516,26 @@ class Smb2Client implements Finalizable {
 
   /// Read the target path of a symbolic link.
   ///
-  /// libsmb2's `smb2_readlink` returns 0 on success without reporting how
-  /// many bytes it wrote, and internally uses `strncpy` which does NOT
-  /// NUL-terminate when the target fills the buffer. We allocate
-  /// `bufferSize + 1` zeroed bytes and tell libsmb2 it owns only
-  /// `bufferSize`, so the trailing zero is a forced NUL terminator.
+  /// The target string handed to the completion callback is owned by
+  /// libsmb2 and freed the moment the callback returns — the pump's
+  /// `capture` hook copies it into a Dart string while it is still valid.
   ///
   /// Throws [Smb2Exception] on failure (e.g., path is not a symlink).
   String readlink(String path) {
     _ensureConnected();
     return using((arena) {
-      final buf = arena<Uint8>(_readlinkBufferSize + 1);
-      final rc = _native.smb2_readlink(
-        _ctx,
-        _path(path, arena),
-        buf.cast(),
-        _readlinkBufferSize,
+      final p = _path(path, arena);
+      final res = _op(
+        'Readlink failed',
+        (cb, cbData) => _native.smb2_readlink_async(_ctx, p, cb, cbData),
+        capture: (status, data) => status < 0 || data == nullptr
+            ? null
+            : data.cast<Utf8>().toDartString(),
       );
-      if (rc < 0) throw _makeError(_native, _ctx, 'Readlink failed');
-      return buf.cast<Utf8>().toDartString();
+      if (res.status < 0) {
+        throw _makeError(_ctx, 'Readlink failed', -res.status);
+      }
+      return (res.captured as String?) ?? '';
     });
   }
 
@@ -491,11 +565,7 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] if the file cannot be opened.
   Smb2Handle openFileHandle(String path) {
     _ensureConnected();
-    return using((arena) {
-      final fh = _native.smb2_open(_ctx, _path(path, arena), _flags.rdonly);
-      if (fh == nullptr) throw _makeError(_native, _ctx, 'Open failed');
-      return Smb2Handle._(fh);
-    });
+    return Smb2Handle._(_openHandle(path, _flags.rdonly, 'Open failed'));
   }
 
   /// Open a file and get its size in one call.
@@ -506,19 +576,14 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on failure.
   (Smb2Handle handle, int size) openFileWithSize(String path) {
     _ensureConnected();
-    final fh = using((arena) {
-      final h = _native.smb2_open(_ctx, _path(path, arena), _flags.rdonly);
-      if (h == nullptr) throw _makeError(_native, _ctx, 'Open failed');
-      return h;
-    });
-    return using((arena) {
-      final st = arena<smb2_stat_64>();
-      if (_native.smb2_fstat(_ctx, fh, st) < 0) {
-        _native.smb2_close(_ctx, fh);
-        throw _makeError(_native, _ctx, 'Open failed (fstat)');
-      }
-      return (Smb2Handle._(fh), st.ref.smb2_size);
-    });
+    final fh = _openHandle(path, _flags.rdonly, 'Open failed');
+    try {
+      final size = _fstatSize(fh, 'Open failed (fstat)');
+      return (Smb2Handle._(fh), size);
+    } catch (_) {
+      _closeQuiet(fh);
+      rethrow;
+    }
   }
 
   /// Read [length] bytes at [offset] from an open file handle.
@@ -532,18 +597,19 @@ class Smb2Client implements Finalizable {
   }) {
     _ensureConnected();
     final buf = malloc<Uint8>(length);
-    final n = _native.smb2_pread(_ctx, handle._fh, buf, length, offset);
-    if (n < 0) {
+    try {
+      final n = _pread(handle._fh, buf, length, offset, 'Handle read failed');
+      return buf.asTypedList(n, finalizer: malloc.nativeFree);
+    } catch (_) {
       malloc.free(buf);
-      throw _makeError(_native, _ctx, 'Handle read failed');
+      rethrow;
     }
-    return buf.asTypedList(n, finalizer: malloc.nativeFree);
   }
 
   /// Close a file handle opened with [openFileHandle] or [openFileWithSize].
   void closeHandle(Smb2Handle handle) {
     if (_ctx == nullptr || handle._fh == nullptr) return;
-    _native.smb2_close(_ctx, handle._fh);
+    _closeQuiet(handle._fh);
   }
 
   // ─── Streaming ──────────────────────────────────────────────────────
@@ -578,21 +644,18 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on write failure.
   void writeFileRange(String path, Uint8List data, {int offset = 0}) {
     _ensureConnected();
-    using((arena) {
-      final fh = _native.smb2_open(
-        _ctx,
-        _path(path, arena),
-        _flags.wronly | _flags.creat,
-      );
-      if (fh == nullptr) {
-        throw _makeError(_native, _ctx, 'Open for write failed');
-      }
-      try {
+    final fh = _openHandle(
+      path,
+      _flags.wronly | _flags.creat,
+      'Open for write failed',
+    );
+    try {
+      using((arena) {
         _pwriteLoop(fh, _copyToNative(data, arena), data.length, offset);
-      } finally {
-        _native.smb2_close(_ctx, fh);
-      }
-    });
+      });
+    } finally {
+      _closeQuiet(fh);
+    }
   }
 
   /// Write [data] to a file, creating or truncating it.
@@ -602,21 +665,18 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on failure.
   void writeFile(String path, Uint8List data) {
     _ensureConnected();
-    using((arena) {
-      final fh = _native.smb2_open(
-        _ctx,
-        _path(path, arena),
-        _flags.wronly | _flags.creat | _flags.trunc,
-      );
-      if (fh == nullptr) {
-        throw _makeError(_native, _ctx, 'Open for write failed');
-      }
-      try {
+    final fh = _openHandle(
+      path,
+      _flags.wronly | _flags.creat | _flags.trunc,
+      'Open for write failed',
+    );
+    try {
+      using((arena) {
         _pwriteLoop(fh, _copyToNative(data, arena), data.length, 0);
-      } finally {
-        _native.smb2_close(_ctx, fh);
-      }
-    });
+      });
+    } finally {
+      _closeQuiet(fh);
+    }
   }
 
   // ─── Write handles (open once, write many, close once) ─────────────────
@@ -629,17 +689,13 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] if the file cannot be opened.
   Smb2Handle openFileHandleWrite(String path) {
     _ensureConnected();
-    return using((arena) {
-      final fh = _native.smb2_open(
-        _ctx,
-        _path(path, arena),
+    return Smb2Handle._(
+      _openHandle(
+        path,
         _flags.wronly | _flags.creat,
-      );
-      if (fh == nullptr) {
-        throw _makeError(_native, _ctx, 'Open for write failed');
-      }
-      return Smb2Handle._(fh);
-    });
+        'Open for write failed',
+      ),
+    );
   }
 
   /// Write [data] at [offset] to an open file handle.
@@ -660,9 +716,10 @@ class Smb2Client implements Finalizable {
   /// Throws [Smb2Exception] on failure.
   void fsync(Smb2Handle handle) {
     _ensureConnected();
-    if (_native.smb2_fsync(_ctx, handle._fh) < 0) {
-      throw _makeError(_native, _ctx, 'Fsync failed');
-    }
+    _checkedOp(
+      'Fsync failed',
+      (cb, cbData) => _native.smb2_fsync_async(_ctx, handle._fh, cb, cbData),
+    );
   }
 
   /// Truncate an open file handle to [length] bytes.
@@ -672,9 +729,11 @@ class Smb2Client implements Finalizable {
   void ftruncate(Smb2Handle handle, int length) {
     _ensureConnected();
     if (length < 0) throw _negativeLength();
-    if (_native.smb2_ftruncate(_ctx, handle._fh, length) < 0) {
-      throw _makeError(_native, _ctx, 'Ftruncate failed');
-    }
+    _checkedOp(
+      'Ftruncate failed',
+      (cb, cbData) =>
+          _native.smb2_ftruncate_async(_ctx, handle._fh, length, cb, cbData),
+    );
   }
 
   // ─── Streaming write ────────────────────────────────────────────────────
@@ -705,9 +764,11 @@ class Smb2Client implements Finalizable {
   void deleteFile(String path) {
     _ensureConnected();
     using((arena) {
-      if (_native.smb2_unlink(_ctx, _path(path, arena)) < 0) {
-        throw _makeError(_native, _ctx, 'Delete failed');
-      }
+      final p = _path(path, arena);
+      _checkedOp(
+        'Delete failed',
+        (cb, cbData) => _native.smb2_unlink_async(_ctx, p, cb, cbData),
+      );
     });
   }
 
@@ -717,9 +778,11 @@ class Smb2Client implements Finalizable {
   void mkdir(String path) {
     _ensureConnected();
     using((arena) {
-      if (_native.smb2_mkdir(_ctx, _path(path, arena)) < 0) {
-        throw _makeError(_native, _ctx, 'Mkdir failed');
-      }
+      final p = _path(path, arena);
+      _checkedOp(
+        'Mkdir failed',
+        (cb, cbData) => _native.smb2_mkdir_async(_ctx, p, cb, cbData),
+      );
     });
   }
 
@@ -729,9 +792,11 @@ class Smb2Client implements Finalizable {
   void rmdir(String path) {
     _ensureConnected();
     using((arena) {
-      if (_native.smb2_rmdir(_ctx, _path(path, arena)) < 0) {
-        throw _makeError(_native, _ctx, 'Rmdir failed');
-      }
+      final p = _path(path, arena);
+      _checkedOp(
+        'Rmdir failed',
+        (cb, cbData) => _native.smb2_rmdir_async(_ctx, p, cb, cbData),
+      );
     });
   }
 
@@ -742,12 +807,12 @@ class Smb2Client implements Finalizable {
   void rename(String oldPath, String newPath) {
     _ensureConnected();
     using((arena) {
-      final rc = _native.smb2_rename(
-        _ctx,
-        _path(oldPath, arena),
-        _path(newPath, arena),
+      final pOld = _path(oldPath, arena);
+      final pNew = _path(newPath, arena);
+      _checkedOp(
+        'Rename failed',
+        (cb, cbData) => _native.smb2_rename_async(_ctx, pOld, pNew, cb, cbData),
       );
-      if (rc < 0) throw _makeError(_native, _ctx, 'Rename failed');
     });
   }
 
@@ -759,9 +824,12 @@ class Smb2Client implements Finalizable {
     _ensureConnected();
     if (length < 0) throw _negativeLength();
     using((arena) {
-      if (_native.smb2_truncate(_ctx, _path(path, arena), length) < 0) {
-        throw _makeError(_native, _ctx, 'Truncate failed');
-      }
+      final p = _path(path, arena);
+      _checkedOp(
+        'Truncate failed',
+        (cb, cbData) =>
+            _native.smb2_truncate_async(_ctx, p, length, cb, cbData),
+      );
     });
   }
 
@@ -771,6 +839,87 @@ class Smb2Client implements Finalizable {
     if (_ctx == nullptr) {
       throw const Smb2Exception('Not connected. Call connect() first.');
     }
+  }
+
+  /// Run one async operation on the connected context.
+  Smb2OpResult _op(
+    String opName,
+    int Function(smb2_command_cb cb, Pointer<Void> cbData) start, {
+    Object? Function(int status, Pointer<Void> data)? capture,
+  }) =>
+      _pump.run(
+        _ctx,
+        opName: opName,
+        start: start,
+        timeoutSeconds: _timeoutSeconds,
+        capture: capture,
+      );
+
+  /// Run one async operation and throw on a negative completion status.
+  /// Returns the (non-negative) status — the byte count for pread/pwrite.
+  int _checkedOp(
+    String opName,
+    int Function(smb2_command_cb cb, Pointer<Void> cbData) start,
+  ) {
+    final res = _op(opName, start);
+    if (res.status < 0) throw _makeError(_ctx, opName, -res.status);
+    return res.status;
+  }
+
+  /// Open [path] with [flags]; returns the native file handle.
+  Pointer<smb2fh> _openHandle(String path, int flags, String errPrefix) {
+    return using((arena) {
+      final p = _path(path, arena);
+      final res = _op(
+        errPrefix,
+        (cb, cbData) => _native.smb2_open_async(_ctx, p, flags, cb, cbData),
+      );
+      if (res.status < 0 || res.data == nullptr) {
+        throw _makeError(_ctx, errPrefix, -res.status);
+      }
+      return res.data.cast<smb2fh>();
+    });
+  }
+
+  /// Best-effort close of a native file handle. Never throws — used in
+  /// finally blocks where a close failure must not mask the real error.
+  void _closeQuiet(Pointer<smb2fh> fh) {
+    try {
+      _op(
+        'Close failed',
+        (cb, cbData) => _native.smb2_close_async(_ctx, fh, cb, cbData),
+      );
+    } on Smb2Exception {
+      // The context/transport is torn; the server reclaims the handle
+      // when the session dies.
+    }
+  }
+
+  /// pread into [buf]; returns the byte count (may be short — libsmb2
+  /// clamps each request at the negotiated MaxReadSize).
+  int _pread(
+    Pointer<smb2fh> fh,
+    Pointer<Uint8> buf,
+    int length,
+    int offset,
+    String errPrefix,
+  ) =>
+      _checkedOp(
+        errPrefix,
+        (cb, cbData) =>
+            _native.smb2_pread_async(_ctx, fh, buf, length, offset, cb, cbData),
+      );
+
+  /// File size via fstat on an open handle.
+  int _fstatSize(Pointer<smb2fh> fh, String errPrefix) {
+    return using((arena) {
+      final st = arena<smb2_stat_64>();
+      _checkedOp(
+        errPrefix,
+        (cb, cbData) => _native.smb2_fstat_async(_ctx, fh, st, cb, cbData),
+      );
+      return st.ref.smb2_size;
+    });
   }
 
   /// NUL-rejecting path allocation against [arena].
@@ -811,16 +960,45 @@ class Smb2Client implements Finalizable {
     while (total < length) {
       final remaining = length - total;
       final toWrite = remaining < chunkSize ? remaining : chunkSize;
-      final n =
-          _native.smb2_pwrite(_ctx, fh, buf + total, toWrite, offset + total);
-      if (n < 0) throw _makeError(_native, _ctx, 'Write failed');
+      final n = _checkedOp(
+        'Write failed',
+        (cb, cbData) => _native.smb2_pwrite_async(
+          _ctx,
+          fh,
+          buf + total,
+          toWrite,
+          offset + total,
+          cb,
+          cbData,
+        ),
+      );
       if (n == 0) break; // cannot make progress
       total += n;
     }
   }
+
+  /// Build a typed [Smb2Exception] for a failed operation.
+  ///
+  /// [errno] is the fresh `-status` from the operation's completion
+  /// callback (or 0 when unavailable); classification prefers it and falls
+  /// back to the context's message — see [Smb2ErrorType.classifyStatus].
+  Smb2Exception _makeError(
+    Pointer<smb2_context> ctx,
+    String prefix,
+    int errno,
+  ) {
+    final ptr = _native.smb2_get_error(ctx);
+    final msg =
+        ptr == nullptr ? 'Unknown error' : ptr.cast<Utf8>().toDartString();
+    return Smb2Exception(
+      '$prefix: $msg',
+      errno,
+      Smb2ErrorType.classifyStatus(errno, msg),
+    );
+  }
 }
 
-/// POSIX-style open flags as understood by `smb2_open` in libsmb2.
+/// POSIX-style open flags as understood by `smb2_open_async` in libsmb2.
 ///
 /// libsmb2 forwards the integer straight to the host OS's `<fcntl.h>`
 /// interpretation, and the prebuilt per-platform binary was compiled
@@ -832,7 +1010,7 @@ class Smb2Client implements Finalizable {
 ///     O_TRUNC=0o1000, O_APPEND=0o2000.
 ///   * macOS/iOS (Apple libc): O_APPEND=0x8, O_CREAT=0x200, O_TRUNC=0x400,
 ///     O_EXCL=0x800.
-///   * Windows (mingw-w64 / MSVCRT): O_APPEND=0x8, O_CREAT=0x100,
+///   * Windows (MSVC / mingw-w64): O_APPEND=0x8, O_CREAT=0x100,
 ///     O_TRUNC=0x200, O_EXCL=0x400.
 ///
 /// O_RDONLY/O_WRONLY/O_RDWR are 0/1/2 on every supported platform.
@@ -897,9 +1075,8 @@ class _OpenFlags {
 
 final _OpenFlags _flags = _OpenFlags._resolve();
 
-/// Maximum length for a symlink target. 4096 matches Linux PATH_MAX, a
-/// sane upper bound for any real share.
-const int _readlinkBufferSize = 4096;
+/// Cap on how long a best-effort wire logoff may block a teardown path.
+const int _disconnectTimeoutSeconds = 5;
 
 /// Fallback chunk size used when libsmb2 reports `max_write_size` of 0.
 const int _writeChunkFallback = 1024 * 1024;
@@ -909,29 +1086,6 @@ Smb2Exception _negativeLength() => const Smb2Exception(
       22,
       Smb2ErrorType.invalidParam,
     );
-
-/// Build a typed [Smb2Exception] from the current libsmb2 context error.
-///
-/// Both signals (message + errno) are consulted because libsmb2's
-/// `smb2_set_error` is sometimes invoked without updating the NT-status
-/// field — message-based classification picks up those transport-failure
-/// paths even when the errno is stale (see [Smb2ErrorType.classify]).
-Smb2Exception _makeError(
-  LibSmb2Bindings lib,
-  Pointer<smb2_context> ctx,
-  String prefix,
-) {
-  final ptr = lib.smb2_get_error(ctx);
-  final msg =
-      ptr == nullptr ? 'Unknown error' : ptr.cast<Utf8>().toDartString();
-  final nt = lib.smb2_get_nterror(ctx);
-  final errno = lib.nterror_to_errno(nt);
-  return Smb2Exception(
-    '$prefix: $msg',
-    errno,
-    Smb2ErrorType.classify(msg, errno),
-  );
-}
 
 Smb2FileType _parseType(int type) => switch (type) {
       SMB2_TYPE_DIRECTORY => Smb2FileType.directory,

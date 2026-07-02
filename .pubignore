@@ -42,3 +42,11 @@ dart_test.yaml
 # Codegen config
 analysis_options.yaml
 ffigen.yaml
+
+# Vendored upstream libsmb2 source (used by ffigen + native release builds;
+# the published package downloads prebuilt binaries instead)
+/third_party/
+
+# Native build scripts / CI
+/tool/
+/.github/

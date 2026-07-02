@@ -8,9 +8,10 @@
 ///   1. Reads `.env.test` (copy `.env.test.example` first).
 ///   2. Brings up the Samba container with `docker compose up -d --wait`.
 ///   3. Resolves the path to the libsmb2 dynamic library for the current
-///      host (macOS or Linux). The `.dylib` / `.so` must already exist —
-///      run `cd ../../../libsmb2-scripts && make checksums` once after a
-///      fresh clone.
+///      host (macOS or Linux). Build it from the vendored vanilla sources
+///      first — `./tool/native/build-apple.sh` on macOS or
+///      `./tool/native/build-linux.sh` on Linux — or point `$SMB2_LIB_PATH`
+///      at any libsmb2 binary.
 ///   4. Connects via `Smb2Pool` and seeds a known test file on the share.
 ///   5. Persists the configuration to `.bootstrap-cache.json` so test files
 ///      can call `poolFromCache()` without re-running this script.
@@ -142,28 +143,41 @@ Future<void> _runOrDie(List<String> argv, {String? workingDir}) async {
   if (r.exitCode != 0) exit(r.exitCode);
 }
 
-/// Pick the right per-platform libsmb2 path from the consumer dirs. Falls
-/// back to a $SMB2_LIB_PATH override.
+/// Pick the right per-platform libsmb2 path: a `$SMB2_LIB_PATH` override,
+/// the vanilla binary built by `tool/native/`, or the prebuilt one the
+/// consumer build downloaded.
 String _resolveLibPath() {
   final override = Platform.environment['SMB2_LIB_PATH'];
   if (override != null && File(override).existsSync()) return override;
 
-  String? candidate;
+  final candidates = <String>[];
   if (Platform.isMacOS) {
-    candidate =
-        'macos/dart_smb2/Frameworks/libsmb2.xcframework/macos-arm64_x86_64/libsmb2.framework/Versions/A/libsmb2';
+    candidates.addAll([
+      // Built from the vendored vanilla sources: tool/native/build-apple.sh
+      'build/native/apple/libsmb2_macos.xcframework/macos-arm64_x86_64/'
+          'libsmb2.framework/Versions/A/libsmb2',
+      // Downloaded by `pod install` / SPM in a consuming app checkout.
+      'macos/dart_smb2/Frameworks/libsmb2.xcframework/macos-arm64_x86_64/'
+          'libsmb2.framework/Versions/A/libsmb2',
+    ]);
   } else if (Platform.isLinux) {
-    // Pick the host arch's bundled .so. Falls back to the canonical link
-    // if generate_checksums.sh has been run.
     final arch = _linuxArch();
-    candidate = 'linux/libs/$arch/libsmb2.so';
+    candidates.addAll([
+      // Built from the vendored vanilla sources: tool/native/build-linux.sh
+      'build/native/dist/libsmb2_linux-$arch.so',
+      // Downloaded by the plugin's CMake in a consuming app build.
+      'linux/libs/$arch/libsmb2.so',
+    ]);
   }
-  if (candidate != null && File(candidate).existsSync()) return candidate;
+  for (final candidate in candidates) {
+    if (File(candidate).existsSync()) return candidate;
+  }
 
   stderr.writeln(
-    'Could not locate libsmb2 native binary. Run `make checksums` from '
-    'libsmb2-scripts/ to install the prebuilt library, or set '
-    '\$SMB2_LIB_PATH to an absolute path.',
+    'Could not locate a libsmb2 native binary. Build one from the vendored '
+    'vanilla sources (`./tool/native/build-apple.sh` on macOS, '
+    '`./tool/native/build-linux.sh` on Linux) or set \$SMB2_LIB_PATH to an '
+    'absolute path.',
   );
   exit(1);
 }
