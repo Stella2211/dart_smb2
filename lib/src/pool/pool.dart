@@ -117,12 +117,19 @@ class Smb2Pool {
   /// List available shares on a server (no active connection needed).
   ///
   /// Spawns a temporary isolate, connects to IPC$, enumerates, and cleans up.
+  ///
+  /// [seal]/[signing] mirror the same-named [connect] parameters — they are
+  /// applied to the temporary IPC$ connection used for enumeration. Pass
+  /// `true` to require SMB3 encryption / packet signing when listing shares
+  /// on a security-hardened server.
   static Future<List<Smb2ShareInfo>> listSharesOn({
     required String host,
     String? user,
     String? password,
     String? domain,
     int timeoutSeconds = 15,
+    bool seal = false,
+    bool signing = false,
   }) async {
     // Capture the test override here so the spawned isolate (which
     // doesn't inherit the main isolate's static fields) can re-apply
@@ -137,6 +144,8 @@ class Smb2Pool {
         password: password,
         domain: domain,
         timeoutSeconds: timeoutSeconds,
+        seal: seal,
+        signing: signing,
       );
     });
   }

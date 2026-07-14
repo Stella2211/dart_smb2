@@ -112,12 +112,17 @@ class Smb2Client implements Finalizable {
   /// once at startup rather than concurrently from many isolates.
   ///
   /// Returns a list of [Smb2ShareInfo] with name and type.
+  ///
+  /// [seal]/[signing] mirror [connect]'s same-named parameters and are
+  /// applied to the temporary IPC$ context used for enumeration.
   List<Smb2ShareInfo> listShares({
     required String host,
     String? user,
     String? password,
     String? domain,
     int timeoutSeconds = 30,
+    bool seal = false,
+    bool signing = false,
   }) {
     final ctx = _native.smb2_init_context();
     if (ctx == nullptr) {
@@ -135,6 +140,8 @@ class Smb2Client implements Finalizable {
         domain: domain,
         timeoutSeconds: timeoutSeconds,
       );
+      if (seal) _native.smb2_set_seal(ctx, 1);
+      if (signing) _native.smb2_set_sign(ctx, 1);
 
       // Connect to IPC$ (the named-pipe transport for SRVSVC). `user` is
       // passed through verbatim — libsmb2 treats an empty string as "guest".

@@ -1,3 +1,8 @@
+## [Unreleased]
+
+### Added
+- `Smb2Pool.listSharesOn` and `Smb2Client.listShares` now accept `seal`/`signing` parameters, mirroring `connect`/`Smb2Pool.connect`. Share enumeration against a security-hardened server can now require SMB3 encryption and/or packet signing, matching the guarantees already available for `connect`.
+
 ## [0.2.0] - 02-07-2026
 
 ### Changed
