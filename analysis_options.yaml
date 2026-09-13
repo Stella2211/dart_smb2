@@ -18,7 +18,6 @@ linter:
   rules:
     # Public API hygiene for a published package.
     - public_member_api_docs
-    - package_api_docs
     # Const correctness.
     - prefer_const_constructors
     - prefer_const_constructors_in_immutables

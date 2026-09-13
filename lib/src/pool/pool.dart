@@ -719,7 +719,7 @@ class Smb2Pool {
     _reconnectsInFlight[worker] = future;
     future.then<void>(
       (_) => _reconnectsInFlight.remove(worker),
-      onError: (Object _, StackTrace __) {
+      onError: (Object _, StackTrace _) {
         _reconnectsInFlight.remove(worker);
       },
     );

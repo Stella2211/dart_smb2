@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Changed
+- Updated the minimum Dart SDK to `3.11.0` and Flutter to `3.47.0`.
+- Updated the stable Dart toolchain dependencies to `ffi 2.2.0`, `meta 1.19.0`, `ffigen 22.0.0`, `lints 6.1.0` and `test 1.32.0`.
+- Regenerated the FFI bindings with ffigen 22 against the pinned, unmodified libsmb2 `6.1.0` headers.
+- Kept the fork's Dart event pump, raw libsmb2 build and native lifecycle helper. The upstream 0.1.2 changes require a different patched libsmb2-r7 build and do not replace these teardown guarantees.
+
+### Fixed
+- Removed the obsolete `package_api_docs` analyzer rule and updated the reconnect callback to the current Dart analyzer conventions.
+
 ### Added
 - `Smb2Pool.listSharesOn` and `Smb2Client.listShares` now accept `seal`/`signing` parameters, mirroring `connect`/`Smb2Pool.connect`. Share enumeration against a security-hardened server can now require SMB3 encryption and/or packet signing, matching the guarantees already available for `connect`.
 
