@@ -15,9 +15,11 @@ endif()
 # arches are supported (x86_64, aarch64) and the binaries live in arch-scoped
 # subdirectories: linux/libs/<arch>/libsmb2.so. The CMake config detects the
 # build's target arch and picks the matching subdir.
-set(SMB2_RELEASE_VERSION  "libsmb2-r8")
-set(EXPECTED_SHA256_X86_64  "d269f6f84ed2868e8166341d8258de69376d37e6988fb4d1c5b9706a2e723f98")
-set(EXPECTED_SHA256_AARCH64  "f4c5a71f1131e9883f87e105ffe8e2208aac48defa9bbd8653e0380f81b7d16a")
+set(SMB2_RELEASE_VERSION  "libsmb2-r9")
+# Populated from the SHA256SUMS artifact produced by native-release. The zero
+# sentinel keeps an unpublished r9 binary from being mistaken for r8.
+set(EXPECTED_SHA256_X86_64  "0000000000000000000000000000000000000000000000000000000000000000")
+set(EXPECTED_SHA256_AARCH64  "0000000000000000000000000000000000000000000000000000000000000000")
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
   set(_SMB2_ARCH         "aarch64")
@@ -35,7 +37,24 @@ set(_SMB2_LIB_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/libs/${_SMB2_ARCH}")
 set(_BUNDLED_SMB2  "${_SMB2_LIB_DIR}/libsmb2.so")
 
 set(DOWNLOAD_NEEDED TRUE)
-if(EXISTS "${_BUNDLED_SMB2}")
+if(DEFINED ENV{DART_SMB2_NATIVE_DIST} AND
+   EXISTS "$ENV{DART_SMB2_NATIVE_DIST}/${_SMB2_RELEASE_NAME}")
+  file(MAKE_DIRECTORY "${_SMB2_LIB_DIR}")
+  # configure_file(COPYONLY) is supported by the plugin's minimum CMake,
+  # unlike the newer file(COPY_FILE) command.
+  configure_file(
+    "$ENV{DART_SMB2_NATIVE_DIST}/${_SMB2_RELEASE_NAME}"
+    "${_BUNDLED_SMB2}"
+    COPYONLY)
+  set(DOWNLOAD_NEEDED FALSE)
+  message(STATUS "[dart_smb2] Using local libsmb2 artifact from DART_SMB2_NATIVE_DIST")
+endif()
+
+if(DOWNLOAD_NEEDED AND _SMB2_EXPECTED_SHA MATCHES "^0+$")
+  message(FATAL_ERROR "[dart_smb2] libsmb2-r9 checksum for ${_SMB2_ARCH} is not published yet. Download SHA256SUMS and run dart run tool/update_native_checksums.dart SHA256SUMS libsmb2-r9.")
+endif()
+
+if(DOWNLOAD_NEEDED AND EXISTS "${_BUNDLED_SMB2}")
   file(SHA256 "${_BUNDLED_SMB2}" ACTUAL_SHA256)
   if(ACTUAL_SHA256 STREQUAL _SMB2_EXPECTED_SHA)
     set(DOWNLOAD_NEEDED FALSE)

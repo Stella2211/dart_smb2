@@ -7,10 +7,8 @@
 # Tear down + wipe the share data:
 #   docker compose down -v
 #
-# Port 445 is bound to 127.0.0.1 only so the test server is not reachable
-# from the LAN. If your dev machine has macOS File Sharing enabled (or any
-# other SMB server on 445), either turn it off or bump SMB2_HOST_PORT in
-# `.env.test` to a free port.
+# The selected host port is bound to 127.0.0.1 only so the test server is not
+# reachable from the LAN. Use `.env.test.1445` when host port 445 is occupied.
 
 services:
   samba:

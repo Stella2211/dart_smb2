@@ -10,8 +10,8 @@
 ///   `dart run tool/update_native_checksums.dart <SHA256SUMS-file> <release-tag>`
 ///
 /// Example:
-///   gh release download libsmb2-r6 --pattern SHA256SUMS
-///   dart run tool/update_native_checksums.dart SHA256SUMS libsmb2-r6
+///   gh release download libsmb2-r9 --pattern SHA256SUMS
+///   dart run tool/update_native_checksums.dart SHA256SUMS libsmb2-r9
 ///
 /// Files updated:
 ///   linux/CMakeLists.txt        windows/CMakeLists.txt
@@ -62,14 +62,12 @@ void main(List<String> args) {
   ];
   for (final abi in ['arm64-v8a', 'armeabi-v7a', 'x86_64']) {
     final artifact = 'libsmb2_android-$abi.so';
-    androidEdits.add(
-      (
-        RegExp(
-          '("file"\\s+to\\s+"$artifact",\\s*\\n\\s*"sha256" to )"[0-9a-f]{64}"',
-        ),
-        '\$1"${need(artifact)}"',
+    androidEdits.add((
+      RegExp(
+        '("file"\\s+to\\s+"$artifact",\\s*\\n\\s*"sha256" to )"[0-9a-f]{64}"',
       ),
-    );
+      '\$1"${need(artifact)}"',
+    ));
   }
   _rewrite('android/build.gradle.kts', androidEdits);
 
@@ -79,10 +77,7 @@ void main(List<String> args) {
     ('macos', 'libsmb2_macos.xcframework.zip'),
   ]) {
     _rewrite('$dir/dart_smb2.podspec', [
-      (
-        RegExp('RELEASE="libsmb2-r\\d+"'),
-        'RELEASE="$tag"',
-      ),
+      (RegExp('RELEASE="libsmb2-r\\d+"'), 'RELEASE="$tag"'),
       (
         RegExp('EXPECTED_SHA="[0-9a-f]{64}"'),
         'EXPECTED_SHA="${need(artifact)}"',
@@ -100,10 +95,7 @@ void main(List<String> args) {
         RegExp('(url: "https://[^"]+/download/)libsmb2-r\\d+(/$artifact")'),
         '\$1$tag\$2',
       ),
-      (
-        RegExp('checksum: "[0-9a-f]{64}"'),
-        'checksum: "${need(artifact)}"',
-      ),
+      (RegExp('checksum: "[0-9a-f]{64}"'), 'checksum: "${need(artifact)}"'),
     ]);
   }
 
@@ -123,10 +115,8 @@ Map<String, String> _parseSums(File file) {
   return out;
 }
 
-_Edit _setCmakeVar(String name, String value) => (
-      RegExp('set\\($name\\s+"[^"]*"'),
-      'set($name  "$value"',
-    );
+_Edit _setCmakeVar(String name, String value) =>
+    (RegExp('set\\($name\\s+"[^"]*"'), 'set($name  "$value"');
 
 void _rewrite(String path, List<_Edit> edits) {
   final file = File(path);

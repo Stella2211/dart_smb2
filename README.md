@@ -3,7 +3,7 @@
 #### SMB2/3 client for Dart & Flutter.
 
 [![](https://img.shields.io/pub/v/dart_smb2.svg?style=for-the-badge&logo=dart&logoColor=white)](https://pub.dev/packages/dart_smb2)
-[![](https://img.shields.io/badge/libsmb2-v6.1.0-orange.svg?style=for-the-badge)](https://github.com/sahlberg/libsmb2)
+[![](https://img.shields.io/badge/libsmb2-6.2-orange.svg?style=for-the-badge)](https://github.com/sahlberg/libsmb2/releases/tag/libsmb2-6.2)
 [![](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg?style=for-the-badge)](LICENSE)
 [![](https://img.shields.io/github/stars/ales-drnz/dart_smb2?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ales-drnz/dart_smb2)
 [![](https://img.shields.io/discord/1485588004029333516?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/g2Qf4Mq9MP)
@@ -13,7 +13,7 @@
 <table>
 <tr>
 <td valign="middle" width="90"><img src="https://raw.githubusercontent.com/ales-drnz/dart_smb2/main/imgs/dart_smb2.png" width="70" alt="logo"></td>
-<td valign="middle"><code>dart_smb2</code> is a Dart client for SMB2/3 file shares built on libsmb2 <code>v6.1.0</code>. It provides a streaming API for reading, writing and managing files over the network across desktop and mobile.</td>
+<td valign="middle"><code>dart_smb2</code> is a Dart client for SMB2/3 file shares built on the libsmb2 <code>6.2</code> release tag. It provides a streaming API for reading, writing and managing files over the network across desktop and mobile.</td>
 </tr>
 </table>
 
@@ -1028,7 +1028,7 @@ Add to `DebugProfile.entitlements` and `Release.entitlements`:
 
 The Dart package itself is BSD-3-Clause. The bundled native library, [libsmb2](https://github.com/sahlberg/libsmb2), is **LGPL-2.1** and is handled so that consuming apps stay compliant:
 
-* Built from **unmodified upstream sources** — the exact upstream commit (release tag `libsmb2-6.1`) is pinned as a git submodule at `third_party/libsmb2`. No patches are applied; the submodule hash *is* the upstream hash, so the corresponding source is always identifiable.
+* Built from **unmodified upstream sources** — the exact upstream commit (release tag `libsmb2-6.2`) is pinned as a git submodule at `third_party/libsmb2`. No patches are applied; the submodule hash *is* the upstream hash, so the corresponding source is always identifiable.
 * **Dynamically linked** on every platform (`.so` on Android/Linux, `.dll` on Windows, dynamic `libsmb2.framework` on macOS/iOS), so end users can swap the library — as the LGPL requires.
 * Downloaded at consumer-build time from this repository's GitHub Releases and verified against pinned SHA-256 checksums.
 * Kerberos/GSSAPI is disabled at build configuration time; authentication uses libsmb2's built-in NTLMSSP.
@@ -1052,17 +1052,32 @@ Every artifact is produced from the pristine submodule sources by the scripts in
 | `build-linux.sh` | Linux x86_64 / aarch64 | `libsmb2_linux-<arch>.so` |
 | `build-windows.ps1` | Windows + MSVC | `libsmb2_windows-{x86_64,arm64}.dll` |
 
+The two Apple archives contain a common `libsmb2.xcframework` root so the
+CocoaPods and SwiftPM declarations consume the same release layout.
+
 ### Release flow (CI)
 
-The `native-release` workflow builds all platforms and publishes a GitHub Release when a `libsmb2-r<N>` tag is pushed:
+The `native-release-libsmb2-6.2` workflow builds all platforms and publishes a GitHub Release when a `libsmb2-r<N>` tag is pushed:
 
 ```sh
-git tag libsmb2-r6 && git push origin libsmb2-r6
+git tag libsmb2-r9 && git push origin libsmb2-r9
 # ...wait for the workflow to publish the release...
-gh release download libsmb2-r6 --pattern SHA256SUMS
-dart run tool/update_native_checksums.dart SHA256SUMS libsmb2-r6
+gh release download libsmb2-r9 --pattern SHA256SUMS
+dart run tool/update_native_checksums.dart SHA256SUMS libsmb2-r9
 # commit the updated podspecs / gradle / CMake / Package.swift pins
 ```
+
+The 6.2 native build files use the r9 release tag. Checksums are deliberately
+left as a zero sentinel until the multi-platform workflow has published r9;
+local builds are used for ABI tests and must not be substituted for the CI
+release artifacts. Run the checksum update command above before consuming a
+platform or publishing a package release.
+
+For local Flutter/plugin verification before the release is published, set
+`DART_SMB2_NATIVE_DIST` to the directory produced by the native scripts. The
+Gradle, CocoaPods, Linux CMake, and Windows CMake integrations copy matching
+local artifacts from that directory and bypass the release download; SwiftPM
+still requires the published r9 checksum.
 
 The `ci` workflow additionally runs static analysis, unit tests on Linux/macOS/Windows, the full integration suite against a Samba container using a vanilla libsmb2 built from the submodule, and example-app builds for all five platforms.
 

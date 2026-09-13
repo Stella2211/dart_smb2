@@ -5,7 +5,7 @@
 /// First-run bootstrap for the dart_smb2 integration test suite.
 ///
 /// Idempotent — safe to re-run. Performs in order:
-///   1. Reads `.env.test` (copy `.env.test.example` first).
+///   1. Reads the selected environment file (copy `.env.test.example` first).
 ///   2. Brings up the Samba container with `docker compose up -d --wait`.
 ///   3. Resolves the path to the libsmb2 dynamic library for the current
 ///      host (macOS or Linux). Build it from the vendored vanilla sources
@@ -18,6 +18,9 @@
 ///
 /// Run:
 ///   dart run test/integration/bootstrap.dart
+///
+/// Set `SMB2_ENV_FILE` to select another file in `test/integration`, for
+/// example `.env.test.1445` when the host's TCP/445 is already occupied.
 library;
 
 import 'dart:convert';
@@ -32,29 +35,46 @@ import 'package:dart_smb2/dart_smb2.dart';
 import 'package:dart_smb2/src/ffi/native_lib.dart';
 
 const String _integrationDir = 'test/integration';
-const String _envFile = '$_integrationDir/.env.test';
 const String _cacheFile = '$_integrationDir/.bootstrap-cache.json';
 const String _seedFileName = 'dart_smb2_seed.bin';
 
 Future<void> main() async {
-  if (!File(_envFile).existsSync()) {
+  final envName = Platform.environment['SMB2_ENV_FILE'] ?? '.env.test';
+  if (envName.contains('/') || envName.contains('\\') || envName.isEmpty) {
     stderr.writeln(
-      'Missing $_envFile. Copy $_envFile.example to $_envFile and edit it.',
+      'SMB2_ENV_FILE must be a file name inside $_integrationDir, got: '
+      '$envName',
+    );
+    exit(64);
+  }
+  final envFile = '$_integrationDir/$envName';
+  if (!File(envFile).existsSync()) {
+    stderr.writeln(
+      'Missing $envFile. Copy $envFile.example to $envFile and edit it.',
     );
     exit(1);
   }
 
-  final env = _readEnv(_envFile);
+  final env = _readEnv(envFile);
   final hostPort = int.parse(env['SMB2_HOST_PORT'] ?? '445');
   final share = env['SMB2_SHARE'] ?? 'public';
   final user = env['SMB2_USER'] ?? 'testuser';
   final password = env['SMB2_PASS'] ?? 'testpass';
 
   // ── Docker up ──────────────────────────────────────────────────────────
-  await _runOrDie(
-    ['docker', 'compose', '--env-file', '.env.test', 'up', '-d', '--wait'],
-    workingDir: _integrationDir,
-  );
+  if (Platform.environment['SMB2_SKIP_DOCKER'] == '1') {
+    stdout.writeln('Skipping Docker startup (SMB2_SKIP_DOCKER=1).');
+  } else {
+    await _runOrDie([
+      'docker',
+      'compose',
+      '--env-file',
+      envName,
+      'up',
+      '-d',
+      '--wait',
+    ], workingDir: _integrationDir);
+  }
 
   // ── Resolve libsmb2 path for the current host platform ─────────────────
   final libPath = _resolveLibPath();
@@ -62,16 +82,6 @@ Future<void> main() async {
 
   // ── Smoke connect + seed ───────────────────────────────────────────────
   final host = hostPort == 445 ? '127.0.0.1' : '127.0.0.1:$hostPort';
-
-  // libsmb2 doesn't accept "host:port" in our wrapper — for non-default
-  // ports the user must rebuild with a custom port. Warn loudly.
-  if (hostPort != 445) {
-    stderr.writeln(
-      'WARNING: SMB2_HOST_PORT=$hostPort but the libsmb2 wrapper does not '
-      'support custom ports. Either bind to 445 or extend smb2_wrapper.c '
-      'with smb2_set_port().',
-    );
-  }
 
   stdout.writeln('Connecting to smb://$host/$share as $user...');
   debugLibSmb2PathOverride = libPath;
@@ -108,11 +118,13 @@ Future<void> main() async {
     'password': password,
     'libPath': libPath,
     'testFile': _seedFileName,
+    'envFile': envName,
+    'port': hostPort,
     'bootstrapedAt': DateTime.now().toUtc().toIso8601String(),
   };
-  File(_cacheFile).writeAsStringSync(
-    const JsonEncoder.withIndent('  ').convert(cache),
-  );
+  File(
+    _cacheFile,
+  ).writeAsStringSync(const JsonEncoder.withIndent('  ').convert(cache));
   stdout.writeln('Wrote $_cacheFile');
   stdout.writeln('Done. Run `dart test --tags integration` to start.');
 }

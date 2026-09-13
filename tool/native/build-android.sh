@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build libsmb2.so for Android (arm64-v8a, armeabi-v7a, x86_64) from the
 # UNMODIFIED upstream libsmb2 sources vendored at third_party/libsmb2.
+# The submodule must be pinned to the official libsmb2-6.2 tag.
 #
 # Outputs (under build/native/dist/):
 #   libsmb2_android-arm64-v8a.so
@@ -15,6 +16,13 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SRC="$ROOT/third_party/libsmb2"
 OUT="$ROOT/build/native/android"
 DIST="$ROOT/build/native/dist"
+EXPECTED_LIBSMB2_COMMIT="d67e213a5c4e7e4969fd81f0b95e4ca5831fbba1"
+
+actual_libsmb2_commit="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)"
+if [[ "$actual_libsmb2_commit" != "$EXPECTED_LIBSMB2_COMMIT" ]]; then
+  echo "error: third_party/libsmb2 must be pinned to libsmb2-6.2 ($EXPECTED_LIBSMB2_COMMIT), got ${actual_libsmb2_commit:-unknown}" >&2
+  exit 1
+fi
 
 NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
 if [[ -z "$NDK" ]]; then
@@ -39,7 +47,7 @@ for ABI in "${ABIS[@]}"; do
   echo "── building Android $ABI"
   bdir="$OUT/$ABI"
   # `-include errno.h` is build configuration, not a source change: at
-  # libsmb2-6.1 compat.c's Android API<28 getlogin_r fallback references
+  # libsmb2-6.2 compat.c's Android API<28 getlogin_r fallback references
   # ENXIO without pulling in <errno.h> itself, so the header is
   # force-included for every translation unit.
   cmake -S "$SRC" -B "$bdir" \
@@ -50,6 +58,8 @@ for ABI in "${ABIS[@]}"; do
     -DCMAKE_C_FLAGS="-include errno.h" \
     -DBUILD_SHARED_LIBS=ON \
     -DENABLE_EXAMPLES=OFF \
+    -DENABLE_LIBKRB5=OFF \
+    -DENABLE_GSSAPI=OFF \
     -DHAVE_LIBKRB5=0 \
     -DHAVE_GSSAPI_GSSAPI_H=0 \
     >/dev/null

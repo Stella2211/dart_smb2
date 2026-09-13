@@ -1,5 +1,6 @@
 # Build libsmb2.dll for Windows (x86_64 + arm64) from the UNMODIFIED
 # upstream libsmb2 sources vendored at third_party/libsmb2.
+# The submodule must be pinned to the official libsmb2-6.2 tag.
 #
 # Outputs (under build/native/dist/):
 #   libsmb2_windows-x86_64.dll
@@ -16,6 +17,11 @@ $Root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $Src  = Join-Path $Root 'third_party\libsmb2'
 $Out  = Join-Path $Root 'build\native\windows'
 $Dist = Join-Path $Root 'build\native\dist'
+$ExpectedLibsmb2Commit = 'd67e213a5c4e7e4969fd81f0b95e4ca5831fbba1'
+$ActualLibsmb2Commit = (git -C $Src rev-parse HEAD).Trim()
+if ($ActualLibsmb2Commit -ne $ExpectedLibsmb2Commit) {
+    throw "third_party/libsmb2 must be pinned to libsmb2-6.2 ($ExpectedLibsmb2Commit), got $ActualLibsmb2Commit"
+}
 
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 if (Test-Path $Out) { Remove-Item -Recurse -Force $Out }
@@ -31,6 +37,8 @@ foreach ($t in $Targets) {
     cmake -S $Src -B $bdir -A $t.Platform `
         -DBUILD_SHARED_LIBS=ON `
         -DENABLE_EXAMPLES=OFF `
+        -DENABLE_LIBKRB5=OFF `
+        -DENABLE_GSSAPI=OFF `
         -DHAVE_LIBKRB5=0 `
         -DHAVE_GSSAPI_GSSAPI_H=0
     if ($LASTEXITCODE -ne 0) { throw "cmake configure failed" }

@@ -19,28 +19,59 @@ Pod::Spec.new do |s|
   # time alongside the rest of the app's frameworks.
   s.prepare_command = <<-CMD
     set -e
-    RELEASE="libsmb2-r8"
-    EXPECTED_SHA="e306a3feaaf5e009450c2425833f5da7dad4586cc33a9dbe5d6f8233563936df"
+    RELEASE="libsmb2-r9"
+    EXPECTED_SHA="0000000000000000000000000000000000000000000000000000000000000000"
     URL="https://github.com/Stella2211/dart_smb2/releases/download/${RELEASE}/libsmb2_ios.xcframework.zip"
 
     mkdir -p dart_smb2/Frameworks
     ZIP="dart_smb2/Frameworks/libsmb2_xcframework.zip"
+    MARKER="dart_smb2/Frameworks/.libsmb2_release"
+    ZERO_SHA="0000000000000000000000000000000000000000000000000000000000000000"
     DOWNLOAD_NEEDED=1
 
-    if [ -f "dart_smb2/Frameworks/libsmb2.xcframework/Info.plist" ] && [ -f "$ZIP" ]; then
+    LOCAL_ZIP="${DART_SMB2_NATIVE_DIST:-}/libsmb2_ios.xcframework.zip"
+    if [ -f "$LOCAL_ZIP" ]; then
+      echo "[dart_smb2] Using local libsmb2 artifact: $LOCAL_ZIP"
+      rm -rf "dart_smb2/Frameworks/libsmb2.xcframework"
+      rm -f "$MARKER"
+      cp "$LOCAL_ZIP" "$ZIP"
+      unzip -o "$ZIP" -d dart_smb2/Frameworks/
+      rm -f "$ZIP"
+      printf 'local:%s\n' "$RELEASE" > "$MARKER"
+      DOWNLOAD_NEEDED=0
+    fi
+
+    if [ $DOWNLOAD_NEEDED -eq 1 ] &&
+       [ -f "dart_smb2/Frameworks/libsmb2.xcframework/Info.plist" ] &&
+       [ -f "$ZIP" ]; then
       ACTUAL_SHA=$(shasum -a 256 "$ZIP" | awk '{ print $1 }')
       if [ "$ACTUAL_SHA" = "$EXPECTED_SHA" ]; then
+        printf '%s %s\n' "$RELEASE" "$EXPECTED_SHA" > "$MARKER"
         DOWNLOAD_NEEDED=0
       else
         echo "[dart_smb2] SHA-256 mismatch, redownloading..."
         rm -rf "dart_smb2/Frameworks/libsmb2.xcframework"
         rm -f "$ZIP"
+        rm -f "$MARKER"
       fi
-    elif [ -d "dart_smb2/Frameworks/libsmb2.xcframework" ] && [ ! -f "$ZIP" ]; then
-      DOWNLOAD_NEEDED=0
+    elif [ $DOWNLOAD_NEEDED -eq 1 ] &&
+         [ -d "dart_smb2/Frameworks/libsmb2.xcframework" ]; then
+      if [ -f "$MARKER" ] && [ "$EXPECTED_SHA" != "$ZERO_SHA" ] &&
+         [ "$(cat "$MARKER")" = "$RELEASE $EXPECTED_SHA" ]; then
+        DOWNLOAD_NEEDED=0
+      else
+        # An extracted framework without a matching release/checksum marker
+        # may be an old r8 install. Remove it before considering r9.
+        rm -rf "dart_smb2/Frameworks/libsmb2.xcframework"
+        rm -f "$MARKER"
+      fi
     fi
 
     if [ $DOWNLOAD_NEEDED -eq 1 ]; then
+      if [ "$EXPECTED_SHA" = "$ZERO_SHA" ]; then
+        echo "error: [dart_smb2] libsmb2-r9 checksum is not published yet; run tool/update_native_checksums.dart after downloading SHA256SUMS."
+        exit 1
+      fi
       echo "[dart_smb2] Downloading libsmb2_ios.xcframework.zip..."
       curl -L -f -o "$ZIP" "$URL"
 
@@ -53,6 +84,7 @@ Pod::Spec.new do |s|
 
       unzip -o "$ZIP" -d dart_smb2/Frameworks/
       rm -f "$ZIP"
+      printf '%s %s\n' "$RELEASE" "$EXPECTED_SHA" > "$MARKER"
     fi
   CMD
 

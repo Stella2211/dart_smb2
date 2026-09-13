@@ -23,9 +23,22 @@ cp test/integration/.env.test.example test/integration/.env.test
 dart run test/integration/bootstrap.dart
 ```
 
+To run the suite on the dedicated non-default port used by the local Docker
+SMB service, copy the 1445 profile and select it explicitly:
+
+```bash
+cp test/integration/.env.test.1445.example test/integration/.env.test.1445
+SMB2_ENV_FILE=.env.test.1445 dart run test/integration/bootstrap.dart
+```
+
+When another test stack already owns the 1445 container, set
+`SMB2_SKIP_DOCKER=1` and provide that server's credentials in the selected
+environment file. The bootstrap still performs the real connection and seed
+write, but leaves the running container untouched.
+
 The bootstrap is idempotent — re-running it just re-checks the seed file. It:
 
-1. Reads `.env.test`.
+1. Reads the selected environment file (`.env.test` by default).
 2. Brings up the Samba container via `docker compose up -d --wait`.
 3. Connects through `Smb2Pool` and drops a known 1 MiB seed file (`dart_smb2_seed.bin`) on the share.
 4. Persists everything (`host`, `share`, `user`, `password`, `libPath`, `testFile`) to `.bootstrap-cache.json`.
@@ -44,13 +57,14 @@ If the bootstrap cache is missing, the integration groups skip with a clear mess
 
 ## Port 445 conflict
 
-The container binds `127.0.0.1:445` by default. macOS users who have **System Settings → General → Sharing → File Sharing** enabled will hit a conflict. Either turn File Sharing off temporarily or bump the port in `.env.test`:
+The container binds `127.0.0.1:445` by default. macOS users who have **System Settings → General → Sharing → File Sharing** enabled will hit a conflict. Either turn File Sharing off temporarily or select `.env.test.1445`:
 
 ```env
-SMB2_HOST_PORT=1445
+SMB2_ENV_FILE=.env.test.1445
 ```
 
-Note: the bundled libsmb2 wrapper does not currently expose a port-override, so non-default ports require either a wrapper extension or running tests against the canonical 445.
+libsmb2 accepts the `host:port` form used by the bootstrap cache, so the
+non-default profile exercises the same connection path as port 445.
 
 ## Teardown
 

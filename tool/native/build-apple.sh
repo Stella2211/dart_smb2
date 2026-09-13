@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build dynamic libsmb2.xcframework bundles for macOS and iOS from the
 # UNMODIFIED upstream libsmb2 sources vendored at third_party/libsmb2.
+# The submodule must be pinned to the official libsmb2-6.2 tag.
 #
 # Outputs (under build/native/dist/):
 #   libsmb2_macos.xcframework.zip   (macOS arm64 + x86_64, universal)
@@ -13,6 +14,13 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SRC="$ROOT/third_party/libsmb2"
 OUT="$ROOT/build/native/apple"
 DIST="$ROOT/build/native/dist"
+EXPECTED_LIBSMB2_COMMIT="d67e213a5c4e7e4969fd81f0b95e4ca5831fbba1"
+
+actual_libsmb2_commit="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)"
+if [[ "$actual_libsmb2_commit" != "$EXPECTED_LIBSMB2_COMMIT" ]]; then
+  echo "error: third_party/libsmb2 must be pinned to libsmb2-6.2 ($EXPECTED_LIBSMB2_COMMIT), got ${actual_libsmb2_commit:-unknown}" >&2
+  exit 1
+fi
 
 MACOS_TARGET="12.0"
 IOS_TARGET="15.0"
@@ -41,7 +49,8 @@ build_slice() {
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=ON \
     -DENABLE_EXAMPLES=OFF \
-    -DCMAKE_DISABLE_FIND_PACKAGE_GSSAPI=TRUE \
+    -DENABLE_LIBKRB5=OFF \
+    -DENABLE_GSSAPI=OFF \
     -DHAVE_LIBKRB5=0 \
     -DHAVE_GSSAPI_GSSAPI_H=0 \
     >/dev/null
@@ -72,8 +81,8 @@ make_framework_ios() { # $1 dylib, $2 out dir, $3 min os
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>libsmb2</string>
   <key>CFBundlePackageType</key><string>FMWK</string>
-  <key>CFBundleShortVersionString</key><string>6.1.0</string>
-  <key>CFBundleVersion</key><string>6.1.0</string>
+  <key>CFBundleShortVersionString</key><string>6.2.0</string>
+  <key>CFBundleVersion</key><string>6.2.0</string>
   <key>MinimumOSVersion</key><string>$3</string>
 </dict>
 </plist>
@@ -97,8 +106,8 @@ make_framework_macos() { # $1 dylib, $2 out dir
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>libsmb2</string>
   <key>CFBundlePackageType</key><string>FMWK</string>
-  <key>CFBundleShortVersionString</key><string>6.1.0</string>
-  <key>CFBundleVersion</key><string>6.1.0</string>
+  <key>CFBundleShortVersionString</key><string>6.2.0</string>
+  <key>CFBundleVersion</key><string>6.2.0</string>
   <key>LSMinimumSystemVersion</key><string>$MACOS_TARGET</string>
 </dict>
 </plist>
@@ -108,9 +117,18 @@ PLIST
   ln -s Versions/Current/Resources "$fw/Resources"
 }
 
-zip_xcframework() { # $1 xcframework dir, $2 zip name
-  ( cd "$(dirname "$1")" &&
-    ditto -c -k --keepParent "$(basename "$1")" "$DIST/$2" )
+zip_xcframework() { # $1 source dir, $2 zip name, $3 archive root
+  local archive_root="${3:-$(basename "$1")}"
+  local stage="$OUT/.zip-stage/$archive_root"
+  rm -rf "$OUT/.zip-stage"
+  mkdir -p "$OUT/.zip-stage"
+  # Keep the on-disk build directories platform-specific so the local
+  # bootstrap can inspect either one, while the archive uses the stable
+  # `libsmb2.xcframework` root required by CocoaPods and SwiftPM.
+  ditto "$1" "$stage"
+  ( cd "$OUT/.zip-stage" &&
+    ditto -c -k --keepParent "$archive_root" "$DIST/$2" )
+  rm -rf "$OUT/.zip-stage"
   echo "── wrote $DIST/$2"
 }
 
@@ -122,7 +140,7 @@ rm -rf "$OUT/libsmb2_macos.xcframework"
 xcodebuild -create-xcframework \
   -framework "$OUT/fw/macos/libsmb2.framework" \
   -output "$OUT/libsmb2_macos.xcframework"
-zip_xcframework "$OUT/libsmb2_macos.xcframework" libsmb2_macos.xcframework.zip
+zip_xcframework "$OUT/libsmb2_macos.xcframework" libsmb2_macos.xcframework.zip libsmb2.xcframework
 
 # ── iOS ──────────────────────────────────────────────────────────────────────
 build_slice ios-device iOS iphoneos "arm64" "$IOS_TARGET"
@@ -135,6 +153,6 @@ xcodebuild -create-xcframework \
   -framework "$OUT/fw/ios-device/libsmb2.framework" \
   -framework "$OUT/fw/ios-sim/libsmb2.framework" \
   -output "$OUT/libsmb2_ios.xcframework"
-zip_xcframework "$OUT/libsmb2_ios.xcframework" libsmb2_ios.xcframework.zip
+zip_xcframework "$OUT/libsmb2_ios.xcframework" libsmb2_ios.xcframework.zip libsmb2.xcframework
 
 echo "Done. Artifacts in $DIST"

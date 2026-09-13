@@ -80,6 +80,11 @@ functions:
     - 'smb2_set_timeout'
     - 'smb2_set_workstation'
     - 'smb2_set_authentication'
+    # Context introspection added by libsmb2-6.2. Keeping these symbols in
+    # the generated surface lets the ABI smoke test verify the 6.2 binary.
+    - 'smb2_get_user'
+    - 'smb2_get_domain'
+    - 'smb2_delegate_credentials'
     # Errors
     - 'smb2_get_error'
     - 'smb2_get_nterror'

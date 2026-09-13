@@ -154,6 +154,27 @@ class LibSmb2Bindings {
         )
       >();
 
+  /// copy credential handle from one context to another (and set it NULL in
+  /// source context) returns 0 if handle transferred, or -1 if not (no handle
+  /// or no context, or not applicable)
+  int smb2_delegate_credentials(
+    ffi.Pointer<smb2_context> in$,
+    ffi.Pointer<smb2_context> out,
+  ) {
+    return _smb2_delegate_credentials(in$, out);
+  }
+
+  late final _smb2_delegate_credentialsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2_context>)
+        >
+      >('smb2_delegate_credentials');
+  late final _smb2_delegate_credentials = _smb2_delegate_credentialsPtr
+      .asFunction<
+        int Function(ffi.Pointer<smb2_context>, ffi.Pointer<smb2_context>)
+      >();
+
   /// Destroy an smb2 context.
   void smb2_destroy_context(ffi.Pointer<smb2_context> smb2) {
     return _smb2_destroy_context(smb2);
@@ -352,6 +373,20 @@ class LibSmb2Bindings {
   late final _smb2_get_dialect = _smb2_get_dialectPtr
       .asFunction<int Function(ffi.Pointer<smb2_context>)>();
 
+  /// Get the domain associated with a context. returns NULL if none
+  ffi.Pointer<ffi.Char> smb2_get_domain(ffi.Pointer<smb2_context> smb2) {
+    return _smb2_get_domain(smb2);
+  }
+
+  late final _smb2_get_domainPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<smb2_context>)
+        >
+      >('smb2_get_domain');
+  late final _smb2_get_domain = _smb2_get_domainPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<smb2_context>)>();
+
   /// This function returns a description of the last encountered error.
   ffi.Pointer<ffi.Char> smb2_get_error(ffi.Pointer<smb2_context> smb2) {
     return _smb2_get_error(smb2);
@@ -426,6 +461,20 @@ class LibSmb2Bindings {
       );
   late final _smb2_get_nterror = _smb2_get_nterrorPtr
       .asFunction<int Function(ffi.Pointer<smb2_context>)>();
+
+  /// Get the username associated with a context. returns NULL if none
+  ffi.Pointer<ffi.Char> smb2_get_user(ffi.Pointer<smb2_context> smb2) {
+    return _smb2_get_user(smb2);
+  }
+
+  late final _smb2_get_userPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<smb2_context>)
+        >
+      >('smb2_get_user');
+  late final _smb2_get_user = _smb2_get_userPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<smb2_context>)>();
 
   /// Create an SMB2 context. Function returns NULL : Failed to create a
   /// context. *smb2 : A pointer to an smb2 context.
@@ -1220,16 +1269,10 @@ final class UnnamedUnion$1 extends ffi.Union {
 }
 
 final class UnnamedUnion$2 extends ffi.Union {
-  external smb2_oplock_break_acknowledgement oplock;
-
-  external smb2_lease_break_acknowledgement lease;
-}
-
-final class UnnamedUnion$3 extends ffi.Union {
   external smb2_symlink_reparse_buffer symlink;
 }
 
-final class UnnamedUnion$4 extends ffi.Union {
+final class UnnamedUnion$3 extends ffi.Union {
   external smb2_oplock_break_notification oplock;
 
   external smb2_oplock_break_reply oplockrep;
@@ -1237,6 +1280,12 @@ final class UnnamedUnion$4 extends ffi.Union {
   external smb2_lease_break_notification lease;
 
   external smb2_lease_break_reply leaserep;
+}
+
+final class UnnamedUnion$4 extends ffi.Union {
+  external smb2_oplock_break_acknowledgement oplock;
+
+  external smb2_lease_break_acknowledgement lease;
 }
 
 final class dcerpc_utf16 extends ffi.Struct {

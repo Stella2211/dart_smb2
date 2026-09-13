@@ -3,7 +3,11 @@
 ### Changed
 - Updated the minimum Dart SDK to `3.11.0` and Flutter to `3.47.0`.
 - Updated the stable Dart toolchain dependencies to `ffi 2.2.0`, `meta 1.19.0`, `ffigen 22.0.0`, `lints 6.1.0` and `test 1.32.0`.
-- Regenerated the FFI bindings with ffigen 22 against the pinned, unmodified libsmb2 `6.1.0` headers.
+- Regenerated the FFI bindings with ffigen 22 against the pinned, unmodified libsmb2 `6.2` headers, including the new context introspection symbols.
+- Updated every native build script to consume the upstream `libsmb2-6.2` submodule and disable optional Kerberos/GSSAPI discovery through the 6.2 CMake options.
+- Normalized the macOS/iOS xcframework archive root to `libsmb2.xcframework` and added release/checksum markers so stale extracted r8 frameworks cannot be reused.
+- Added a selectable integration-test environment and verified the real Samba suite can target host port `1445` via libsmb2's `host:port` connection form.
+- Refreshed the CI and native-release actions to current stable `checkout`, `upload-artifact`, `download-artifact`, Flutter, and Java setup releases.
 - Kept the fork's Dart event pump, raw libsmb2 build and native lifecycle helper. The upstream 0.1.2 changes require a different patched libsmb2-r7 build and do not replace these teardown guarantees.
 
 ### Fixed
@@ -19,7 +23,7 @@
   - Replaced libsmb2's sync wrappers (`sync.c`) with a Dart-side event pump (`smb2_*_async` + `poll`/`smb2_service` loop). The pump retries `poll()` on `EINTR` itself — the former `sync.c` patch.
   - Error classification now consumes the async completion status (a fresh `-errno`) directly instead of the patched `smb2_set_nterror` plumbing. Classification prefers the errno and falls back to the message.
   - Share enumeration uses the upstream `smb2_share_enum_async` API instead of the custom `smb2_share_enum_sync` addition.
-- Upstream libsmb2 `6.1.0` is vendored as a git submodule (`third_party/libsmb2`, tag `libsmb2-6.1`) — the pinned hash is the upstream hash, no patches. ffigen and all native builds consume it.
+- Upstream libsmb2 `6.2` is vendored as a git submodule (`third_party/libsmb2`, tag `libsmb2-6.2`) — the pinned hash is the upstream hash, no patches. ffigen and all native builds consume it.
 - Windows errno values (MSVC CRT) are now classified correctly (`ETIMEDOUT`=138, `ECONNREFUSED`=107, …).
 - Kerberos/GSSAPI is disabled in the native builds (build configuration); authentication is NTLMSSP as before.
 
