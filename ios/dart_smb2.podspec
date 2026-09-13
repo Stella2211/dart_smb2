@@ -20,7 +20,7 @@ Pod::Spec.new do |s|
   s.prepare_command = <<-CMD
     set -e
     RELEASE="libsmb2-r9"
-    EXPECTED_SHA="0000000000000000000000000000000000000000000000000000000000000000"
+    EXPECTED_SHA="b230d3bd9cb313b59847f9f1df5737f9b32d7073d908e16880fa7822abe932e9"
     URL="https://github.com/Stella2211/dart_smb2/releases/download/${RELEASE}/libsmb2_ios.xcframework.zip"
 
     mkdir -p dart_smb2/Frameworks

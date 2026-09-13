@@ -71,15 +71,15 @@ val downloadSmb2Task = tasks.register("downloadSmb2Libraries") {
     val abis = mapOf(
         "arm64-v8a" to mapOf(
             "file"   to "libsmb2_android-arm64-v8a.so",
-            "sha256" to "0000000000000000000000000000000000000000000000000000000000000000"
+            "sha256" to "73249d12cfbbba5fd8bf4cd44831e063bc76be666a28694eaecc7abf7a60ad32"
         ),
         "armeabi-v7a" to mapOf(
             "file"   to "libsmb2_android-armeabi-v7a.so",
-            "sha256" to "0000000000000000000000000000000000000000000000000000000000000000"
+            "sha256" to "d5bdb54e98e986bbad34e2f2e0c184118bf67dee226daa71f7c9fa5345465ca9"
         ),
         "x86_64" to mapOf(
             "file"   to "libsmb2_android-x86_64.so",
-            "sha256" to "0000000000000000000000000000000000000000000000000000000000000000"
+            "sha256" to "bb205e3c4e81e87f60908b8f8db2d700c5342ba2560cde33e8762cc583c83e4a"
         )
     )
 

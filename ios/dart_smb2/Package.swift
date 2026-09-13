@@ -33,7 +33,7 @@ let package = Package(
         .binaryTarget(
             name: "libsmb2",
             url: "https://github.com/Stella2211/dart_smb2/releases/download/libsmb2-r9/libsmb2_ios.xcframework.zip",
-            checksum: "0000000000000000000000000000000000000000000000000000000000000000"
+            checksum: "b230d3bd9cb313b59847f9f1df5737f9b32d7073d908e16880fa7822abe932e9"
         ),
     ]
 )
