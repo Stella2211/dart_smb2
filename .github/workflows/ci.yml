@@ -56,6 +56,12 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake gcc binutils
       - name: Build vanilla libsmb2 for the host
         run: ./tool/native/build-linux.sh
+      - name: Build lifecycle helper
+        run: |
+          cmake -S src -B build/native/lifecycle -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native/lifecycle --parallel 2
+          test -f build/native/lifecycle/libdart_smb2_lifecycle.so
+          echo "DART_SMB2_LIFECYCLE_LIBRARY=$PWD/build/native/lifecycle/libdart_smb2_lifecycle.so" >> "$GITHUB_ENV"
       - uses: subosito/flutter-action@v2.23.0
         with:
           channel: stable
@@ -72,7 +78,9 @@ jobs:
           SMB2_LIB_PATH="$PWD/build/native/dist/libsmb2_linux-x86_64.so" \
             dart run test/integration/bootstrap.dart
       - name: Run integration + smoke tests
-        run: dart test test/integration test/ffigen_smoke_test.dart --concurrency=1
+        run: |
+          test -f "$DART_SMB2_LIFECYCLE_LIBRARY"
+          dart test test/integration test/ffigen_smoke_test.dart --concurrency=1
 
   smoke-macos:
     name: ffigen smoke test vs vanilla xcframework (macOS)

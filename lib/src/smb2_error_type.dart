@@ -62,119 +62,119 @@ enum Smb2ErrorType {
   /// MSVC CRT errno values (also used by mingw-w64's MSVCRT/UCRT), as
   /// produced by a Windows build of libsmb2's `nterror_to_errno`.
   static Smb2ErrorType _fromErrnoWindows(int errno) => switch (errno) {
-        // Classic CRT values shared with POSIX.
-        2 => Smb2ErrorType.fileNotFound, // ENOENT
-        5 => Smb2ErrorType.io, // EIO
-        13 => Smb2ErrorType.accessDenied, // EACCES
-        17 => Smb2ErrorType.alreadyExists, // EEXIST
-        20 => Smb2ErrorType.notADirectory, // ENOTDIR
-        22 => Smb2ErrorType.invalidParam, // EINVAL
-        28 => Smb2ErrorType.diskFull, // ENOSPC
-        32 => Smb2ErrorType.connection, // EPIPE
-        // Extended CRT values (errno.h, MSVC 2010+).
-        106 => Smb2ErrorType.connection, // ECONNABORTED
-        107 => Smb2ErrorType.auth, // ECONNREFUSED (often LOGON_FAILURE)
-        108 => Smb2ErrorType.connection, // ECONNRESET
-        110 => Smb2ErrorType.connection, // EHOSTUNREACH
-        116 => Smb2ErrorType.connection, // ENETDOWN
-        117 => Smb2ErrorType.connection, // ENETRESET
-        118 => Smb2ErrorType.connection, // ENETUNREACH
-        126 => Smb2ErrorType.connection, // ENOTCONN
-        138 => Smb2ErrorType.timeout, // ETIMEDOUT
-        _ => Smb2ErrorType.unknown,
-      };
+    // Classic CRT values shared with POSIX.
+    2 => Smb2ErrorType.fileNotFound, // ENOENT
+    5 => Smb2ErrorType.io, // EIO
+    13 => Smb2ErrorType.accessDenied, // EACCES
+    17 => Smb2ErrorType.alreadyExists, // EEXIST
+    20 => Smb2ErrorType.notADirectory, // ENOTDIR
+    22 => Smb2ErrorType.invalidParam, // EINVAL
+    28 => Smb2ErrorType.diskFull, // ENOSPC
+    32 => Smb2ErrorType.connection, // EPIPE
+    // Extended CRT values (errno.h, MSVC 2010+).
+    106 => Smb2ErrorType.connection, // ECONNABORTED
+    107 => Smb2ErrorType.auth, // ECONNREFUSED (often LOGON_FAILURE)
+    108 => Smb2ErrorType.connection, // ECONNRESET
+    110 => Smb2ErrorType.connection, // EHOSTUNREACH
+    116 => Smb2ErrorType.connection, // ENETDOWN
+    117 => Smb2ErrorType.connection, // ENETRESET
+    118 => Smb2ErrorType.connection, // ENETUNREACH
+    126 => Smb2ErrorType.connection, // ENOTCONN
+    138 => Smb2ErrorType.timeout, // ETIMEDOUT
+    _ => Smb2ErrorType.unknown,
+  };
 
   /// POSIX errno values — handles both Linux/Android and macOS/iOS since
   /// libsmb2 surfaces the platform-native codes.
   static Smb2ErrorType _fromErrnoPosix(int errno) => switch (errno) {
-        // ENOENT — Linux & macOS
-        2 => Smb2ErrorType.fileNotFound,
+    // ENOENT — Linux & macOS
+    2 => Smb2ErrorType.fileNotFound,
 
-        // EIO — Linux & macOS
-        5 => Smb2ErrorType.io,
+    // EIO — Linux & macOS
+    5 => Smb2ErrorType.io,
 
-        // EACCES — Linux & macOS
-        // Could stem from ACCESS_DENIED, NETWORK_ACCESS_DENIED, or account
-        // restrictions.  Callers that need to distinguish auth from pure
-        // access-denied can inspect the original SMB2 status code.
-        13 => Smb2ErrorType.accessDenied,
+    // EACCES — Linux & macOS
+    // Could stem from ACCESS_DENIED, NETWORK_ACCESS_DENIED, or account
+    // restrictions.  Callers that need to distinguish auth from pure
+    // access-denied can inspect the original SMB2 status code.
+    13 => Smb2ErrorType.accessDenied,
 
-        // EEXIST — Linux & macOS
-        17 => Smb2ErrorType.alreadyExists,
+    // EEXIST — Linux & macOS
+    17 => Smb2ErrorType.alreadyExists,
 
-        // ENOTDIR — Linux & macOS
-        20 => Smb2ErrorType.notADirectory,
+    // ENOTDIR — Linux & macOS
+    20 => Smb2ErrorType.notADirectory,
 
-        // EINVAL — Linux & macOS
-        22 => Smb2ErrorType.invalidParam,
+    // EINVAL — Linux & macOS
+    22 => Smb2ErrorType.invalidParam,
 
-        // ENOSPC — Linux & macOS
-        28 => Smb2ErrorType.diskFull,
+    // ENOSPC — Linux & macOS
+    28 => Smb2ErrorType.diskFull,
 
-        // EPIPE — Linux & macOS
-        32 => Smb2ErrorType.connection,
+    // EPIPE — Linux & macOS
+    32 => Smb2ErrorType.connection,
 
-        // ENETDOWN — macOS/iOS
-        50 => Smb2ErrorType.connection,
+    // ENETDOWN — macOS/iOS
+    50 => Smb2ErrorType.connection,
 
-        // ENETUNREACH — macOS/iOS
-        51 => Smb2ErrorType.connection,
+    // ENETUNREACH — macOS/iOS
+    51 => Smb2ErrorType.connection,
 
-        // ENETRESET — macOS/iOS
-        52 => Smb2ErrorType.connection,
+    // ENETRESET — macOS/iOS
+    52 => Smb2ErrorType.connection,
 
-        // ECONNABORTED — macOS/iOS
-        53 => Smb2ErrorType.connection,
+    // ECONNABORTED — macOS/iOS
+    53 => Smb2ErrorType.connection,
 
-        // ECONNRESET — macOS/iOS
-        54 => Smb2ErrorType.connection,
+    // ECONNRESET — macOS/iOS
+    54 => Smb2ErrorType.connection,
 
-        // ENOTCONN — macOS/iOS
-        57 => Smb2ErrorType.connection,
+    // ENOTCONN — macOS/iOS
+    57 => Smb2ErrorType.connection,
 
-        // ETIMEDOUT — macOS/iOS
-        60 => Smb2ErrorType.timeout,
+    // ETIMEDOUT — macOS/iOS
+    60 => Smb2ErrorType.timeout,
 
-        // ECONNREFUSED — macOS/iOS (often LOGON_FAILURE)
-        61 => Smb2ErrorType.auth,
+    // ECONNREFUSED — macOS/iOS (often LOGON_FAILURE)
+    61 => Smb2ErrorType.auth,
 
-        // EHOSTDOWN — macOS/iOS
-        64 => Smb2ErrorType.connection,
+    // EHOSTDOWN — macOS/iOS
+    64 => Smb2ErrorType.connection,
 
-        // EHOSTUNREACH — macOS/iOS
-        65 => Smb2ErrorType.connection,
+    // EHOSTUNREACH — macOS/iOS
+    65 => Smb2ErrorType.connection,
 
-        // ENETDOWN — Linux
-        100 => Smb2ErrorType.connection,
+    // ENETDOWN — Linux
+    100 => Smb2ErrorType.connection,
 
-        // ENETUNREACH — Linux
-        101 => Smb2ErrorType.connection,
+    // ENETUNREACH — Linux
+    101 => Smb2ErrorType.connection,
 
-        // ENETRESET — Linux
-        102 => Smb2ErrorType.connection,
+    // ENETRESET — Linux
+    102 => Smb2ErrorType.connection,
 
-        // ECONNABORTED — Linux
-        103 => Smb2ErrorType.connection,
+    // ECONNABORTED — Linux
+    103 => Smb2ErrorType.connection,
 
-        // ECONNRESET — Linux
-        104 => Smb2ErrorType.connection,
+    // ECONNRESET — Linux
+    104 => Smb2ErrorType.connection,
 
-        // ENOTCONN — Linux
-        107 => Smb2ErrorType.connection,
+    // ENOTCONN — Linux
+    107 => Smb2ErrorType.connection,
 
-        // ETIMEDOUT — Linux
-        110 => Smb2ErrorType.timeout,
+    // ETIMEDOUT — Linux
+    110 => Smb2ErrorType.timeout,
 
-        // ECONNREFUSED — Linux (often LOGON_FAILURE)
-        111 => Smb2ErrorType.auth,
+    // ECONNREFUSED — Linux (often LOGON_FAILURE)
+    111 => Smb2ErrorType.auth,
 
-        // EHOSTDOWN — Linux
-        112 => Smb2ErrorType.connection,
+    // EHOSTDOWN — Linux
+    112 => Smb2ErrorType.connection,
 
-        // EHOSTUNREACH — Linux
-        113 => Smb2ErrorType.connection,
-        _ => Smb2ErrorType.unknown,
-      };
+    // EHOSTUNREACH — Linux
+    113 => Smb2ErrorType.connection,
+    _ => Smb2ErrorType.unknown,
+  };
 
   /// Classify a libsmb2 error message string.
   ///

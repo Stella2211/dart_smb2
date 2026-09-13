@@ -334,10 +334,7 @@ void main() {
     });
 
     test('falls through to errno when message is empty', () {
-      expect(
-        Smb2ErrorType.classify('', 32),
-        Smb2ErrorType.connection,
-      );
+      expect(Smb2ErrorType.classify('', 32), Smb2ErrorType.connection);
     });
 
     test('returns unknown when neither signal helps', () {
@@ -349,7 +346,8 @@ void main() {
 
     test('reproduces the original POLLHUP bug — errno=0', () {
       // The exact error from the bug report.
-      const msg = 'Open failed: smb2_service failed with : '
+      const msg =
+          'Open failed: smb2_service failed with : '
           'smb2_service: POLLHUP, socket error.';
       final type = Smb2ErrorType.classify(msg, 0);
       expect(type, Smb2ErrorType.connection);

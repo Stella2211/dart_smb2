@@ -58,10 +58,7 @@ void main() {
           client.deleteFile(name);
         } catch (_) {}
       }
-      for (final name in [
-        '$testDir/subdir',
-        testDir,
-      ]) {
+      for (final name in ['$testDir/subdir', testDir]) {
         try {
           client.rmdir(name);
         } catch (_) {}
@@ -227,12 +224,12 @@ void main() {
     late Smb2Pool pool;
 
     Future<Smb2Pool> connectPool({int workers = 2}) => Smb2Pool.connect(
-          host: host,
-          share: share,
-          user: user,
-          password: pass,
-          workers: workers,
-        );
+      host: host,
+      share: share,
+      user: user,
+      password: pass,
+      workers: workers,
+    );
 
     setUp(() async {
       pool = await connectPool();
@@ -298,10 +295,7 @@ void main() {
 
     test('write handle open + write + close', () async {
       final handle = await pool.openFileWrite('$testDir/pool_handle.bin');
-      await pool.writeToHandle(
-        handle,
-        Uint8List.fromList('Hello'.codeUnits),
-      );
+      await pool.writeToHandle(handle, Uint8List.fromList('Hello'.codeUnits));
       await pool.writeToHandle(
         handle,
         Uint8List.fromList(' Pool'.codeUnits),
@@ -428,17 +422,11 @@ void main() {
     });
 
     test('mkdir rejects NUL in path', () {
-      expect(
-        () => client.mkdir('foo\u0000bar'),
-        throwsA(isA<Smb2Exception>()),
-      );
+      expect(() => client.mkdir('foo\u0000bar'), throwsA(isA<Smb2Exception>()));
     });
 
     test('rmdir rejects NUL in path', () {
-      expect(
-        () => client.rmdir('foo\u0000bar'),
-        throwsA(isA<Smb2Exception>()),
-      );
+      expect(() => client.rmdir('foo\u0000bar'), throwsA(isA<Smb2Exception>()));
     });
 
     test('truncate rejects NUL in path', () {

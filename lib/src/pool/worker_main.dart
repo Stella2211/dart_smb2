@@ -196,10 +196,7 @@ void workerMain(InitMsg init) {
           client.rmdir(msg['path'] as String);
           replyTo?.send(true);
         case 'rename':
-          client.rename(
-            msg['oldPath'] as String,
-            msg['newPath'] as String,
-          );
+          client.rename(msg['oldPath'] as String, msg['newPath'] as String);
           replyTo?.send(true);
         case 'truncate':
           client.truncate(msg['path'] as String, msg['length'] as int);

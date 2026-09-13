@@ -30,9 +30,7 @@ void main() {
   );
 }
 
-Future<({String helper, String smb2})> _compileFixtures(
-  Directory root,
-) async {
+Future<({String helper, String smb2})> _compileFixtures(Directory root) async {
   final extension = Platform.isMacOS ? 'dylib' : 'so';
   final smb2 = '${root.path}/libfake.$extension';
   final helper = '${root.path}/libdart_smb2_lifecycle.$extension';
@@ -87,11 +85,11 @@ Future<void> _runScenario(
       'DART_SMB2_FAKE_CONNECT_PENDING': '1',
   };
 
-  final process = await Process.start(
-    Platform.resolvedExecutable,
-    ['run', 'test/support/native_lifecycle_child.dart', scenario],
-    environment: environment,
-  );
+  final process = await Process.start(Platform.resolvedExecutable, [
+    'run',
+    'test/support/native_lifecycle_child.dart',
+    scenario,
+  ], environment: environment);
   final stdoutFuture = process.stdout.transform(utf8.decoder).join();
   final stderrFuture = process.stderr.transform(utf8.decoder).join();
 
@@ -108,11 +106,7 @@ Future<void> _runScenario(
 
   final stdoutText = await stdoutFuture;
   final stderrText = await stderrFuture;
-  expect(
-    exitCode,
-    0,
-    reason: '$scenario failed\n$stdoutText\n$stderrText',
-  );
+  expect(exitCode, 0, reason: '$scenario failed\n$stdoutText\n$stderrText');
   expect(stdoutText, contains('READY'), reason: scenario);
   if (scenario.startsWith('pending-')) {
     expect(stdoutText, contains('PENDING'), reason: scenario);

@@ -68,12 +68,7 @@ void _connectWorker(SendPort started) {
 void _echoWorker(SendPort started) {
   _configureLibrary();
   final client = Smb2Client.open();
-  client.connect(
-    host: 'fake',
-    share: 'fake',
-    user: 'fake',
-    password: 'fake',
-  );
+  client.connect(host: 'fake', share: 'fake', user: 'fake', password: 'fake');
   started.send('connected');
   client.echo();
 }
@@ -132,16 +127,15 @@ Future<void> _waitForDestroyCount(int count) async {
   await _waitForMarker(marker, minimumLines: count);
 }
 
-Future<void> _waitForMarker(
-  String path, {
-  required int minimumLines,
-}) async {
+Future<void> _waitForMarker(String path, {required int minimumLines}) async {
   final deadline = DateTime.now().add(const Duration(seconds: 5));
   while (DateTime.now().isBefore(deadline)) {
     final file = File(path);
     if (file.existsSync()) {
-      final lines =
-          file.readAsLinesSync().where((line) => line.trim().isNotEmpty).length;
+      final lines = file
+          .readAsLinesSync()
+          .where((line) => line.trim().isNotEmpty)
+          .length;
       if (lines >= minimumLines) return;
     }
     await Future<void>.delayed(const Duration(milliseconds: 25));

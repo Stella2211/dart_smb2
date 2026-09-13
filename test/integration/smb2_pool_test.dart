@@ -242,63 +242,55 @@ void main() {
     });
     tearDown(() => pool.disconnect());
 
-    test(
-      'sequential read throughput (readFileRange, 1 MB chunks)',
-      () async {
-        const chunkSize = 1024 * 1024;
-        final toRead = fileBytes.clamp(0, 8 * chunkSize);
-        var offset = 0;
-        var totalBytes = 0;
-        final sw = Stopwatch()..start();
-        while (offset < toRead) {
-          final len = (toRead - offset).clamp(0, chunkSize);
-          final chunk = await pool.readFileRange(
-            path,
-            offset: offset,
-            length: len,
-          );
-          totalBytes += chunk.length;
-          offset += chunk.length;
-        }
-        sw.stop();
-        final mbps =
-            (totalBytes / (1024 * 1024)) / (sw.elapsedMilliseconds / 1000);
-        print(
-          'Sequential read: ${mbps.toStringAsFixed(1)} MB/s '
-          '(${totalBytes ~/ 1024} KB in ${sw.elapsedMilliseconds} ms)',
+    test('sequential read throughput (readFileRange, 1 MB chunks)', () async {
+      const chunkSize = 1024 * 1024;
+      final toRead = fileBytes.clamp(0, 8 * chunkSize);
+      var offset = 0;
+      var totalBytes = 0;
+      final sw = Stopwatch()..start();
+      while (offset < toRead) {
+        final len = (toRead - offset).clamp(0, chunkSize);
+        final chunk = await pool.readFileRange(
+          path,
+          offset: offset,
+          length: len,
         );
-        // Sanity check — any modern network should do at least 1 MB/s.
-        expect(mbps, greaterThan(1.0));
-      },
-      timeout: const Timeout(Duration(seconds: 60)),
-    );
+        totalBytes += chunk.length;
+        offset += chunk.length;
+      }
+      sw.stop();
+      final mbps =
+          (totalBytes / (1024 * 1024)) / (sw.elapsedMilliseconds / 1000);
+      print(
+        'Sequential read: ${mbps.toStringAsFixed(1)} MB/s '
+        '(${totalBytes ~/ 1024} KB in ${sw.elapsedMilliseconds} ms)',
+      );
+      // Sanity check — any modern network should do at least 1 MB/s.
+      expect(mbps, greaterThan(1.0));
+    }, timeout: const Timeout(Duration(seconds: 60)));
 
-    test(
-      'parallel read throughput (4 workers × 1 MB chunks)',
-      () async {
-        const chunkSize = 1024 * 1024;
-        const requests = 8;
-        final length = chunkSize.clamp(0, fileBytes);
+    test('parallel read throughput (4 workers × 1 MB chunks)', () async {
+      const chunkSize = 1024 * 1024;
+      const requests = 8;
+      final length = chunkSize.clamp(0, fileBytes);
 
-        final sw = Stopwatch()..start();
-        final futures = List.generate(
-          requests,
-          (_) => pool.readFileRange(path, length: length),
-        );
-        final results = await Future.wait(futures);
-        sw.stop();
+      final sw = Stopwatch()..start();
+      final futures = List.generate(
+        requests,
+        (_) => pool.readFileRange(path, length: length),
+      );
+      final results = await Future.wait(futures);
+      sw.stop();
 
-        final totalBytes = results.fold<int>(0, (s, r) => s + r.length);
-        final mbps =
-            (totalBytes / (1024 * 1024)) / (sw.elapsedMilliseconds / 1000);
-        print(
-          'Parallel read ($requests requests): ${mbps.toStringAsFixed(1)} MB/s '
-          '(${totalBytes ~/ 1024} KB in ${sw.elapsedMilliseconds} ms)',
-        );
-        expect(mbps, greaterThan(1.0));
-      },
-      timeout: const Timeout(Duration(seconds: 60)),
-    );
+      final totalBytes = results.fold<int>(0, (s, r) => s + r.length);
+      final mbps =
+          (totalBytes / (1024 * 1024)) / (sw.elapsedMilliseconds / 1000);
+      print(
+        'Parallel read ($requests requests): ${mbps.toStringAsFixed(1)} MB/s '
+        '(${totalBytes ~/ 1024} KB in ${sw.elapsedMilliseconds} ms)',
+      );
+      expect(mbps, greaterThan(1.0));
+    }, timeout: const Timeout(Duration(seconds: 60)));
 
     test('stat latency (50 sequential calls)', () async {
       const iterations = 50;
@@ -329,25 +321,21 @@ void main() {
       expect(avgMs, lessThan(2000));
     });
 
-    test(
-      'handle open+read+close throughput (20 cycles)',
-      () async {
-        const iterations = 20;
-        final sw = Stopwatch()..start();
-        for (var i = 0; i < iterations; i++) {
-          final handle = await pool.openFile(path);
-          await pool.readFromHandle(handle, length: 4096);
-          await pool.closeHandle(handle);
-        }
-        sw.stop();
-        final avgMs = sw.elapsedMilliseconds / iterations;
-        print(
-          'Handle open+read+close: ${avgMs.toStringAsFixed(1)} ms/cycle avg over $iterations cycles',
-        );
-        expect(avgMs, lessThan(5000));
-      },
-      timeout: const Timeout(Duration(seconds: 120)),
-    );
+    test('handle open+read+close throughput (20 cycles)', () async {
+      const iterations = 20;
+      final sw = Stopwatch()..start();
+      for (var i = 0; i < iterations; i++) {
+        final handle = await pool.openFile(path);
+        await pool.readFromHandle(handle, length: 4096);
+        await pool.closeHandle(handle);
+      }
+      sw.stop();
+      final avgMs = sw.elapsedMilliseconds / iterations;
+      print(
+        'Handle open+read+close: ${avgMs.toStringAsFixed(1)} ms/cycle avg over $iterations cycles',
+      );
+      expect(avgMs, lessThan(5000));
+    }, timeout: const Timeout(Duration(seconds: 120)));
   });
 
   // ─── Scoped helpers, downloads & info surface ────────────────────────────
@@ -373,15 +361,11 @@ void main() {
 
     test('withFile(knownSize:) skips the fstat round-trip', () async {
       final size = await pool.fileSize(path);
-      final headLen = await pool.withFile(
-        path,
-        (file) async {
-          expect(file.size, size);
-          final head = await file.read(length: 256);
-          return head.length;
-        },
-        knownSize: size,
-      );
+      final headLen = await pool.withFile(path, (file) async {
+        expect(file.size, size);
+        final head = await file.read(length: 256);
+        return head.length;
+      }, knownSize: size);
       expect(headLen, 256);
     });
 
@@ -440,10 +424,7 @@ void main() {
     });
 
     test('readlink throws on a regular file', () async {
-      await expectLater(
-        pool.readlink(path),
-        throwsA(isA<Smb2Exception>()),
-      );
+      await expectLater(pool.readlink(path), throwsA(isA<Smb2Exception>()));
     });
 
     test('listShares (instance) returns the configured share', () async {
@@ -479,23 +460,25 @@ void main() {
       await pool.disconnect();
     });
 
-    test('openFileWrite + writeToHandle + fsyncHandle + ftruncateHandle',
-        () async {
-      final handle = await pool.openFileWrite(path);
-      try {
-        await pool.writeToHandle(
-          handle,
-          Uint8List.fromList([10, 20, 30, 40, 50, 60]),
-        );
-        await pool.fsyncHandle(handle);
-        expect(await pool.fileSize(path), 6);
+    test(
+      'openFileWrite + writeToHandle + fsyncHandle + ftruncateHandle',
+      () async {
+        final handle = await pool.openFileWrite(path);
+        try {
+          await pool.writeToHandle(
+            handle,
+            Uint8List.fromList([10, 20, 30, 40, 50, 60]),
+          );
+          await pool.fsyncHandle(handle);
+          expect(await pool.fileSize(path), 6);
 
-        await pool.ftruncateHandle(handle, 3);
-        expect(await pool.fileSize(path), 3);
-      } finally {
-        await pool.closeHandle(handle);
-      }
-      expect(await pool.readFile(path), orderedEquals([10, 20, 30]));
-    });
+          await pool.ftruncateHandle(handle, 3);
+          expect(await pool.fileSize(path), 3);
+        } finally {
+          await pool.closeHandle(handle);
+        }
+        expect(await pool.readFile(path), orderedEquals([10, 20, 30]));
+      },
+    );
   });
 }

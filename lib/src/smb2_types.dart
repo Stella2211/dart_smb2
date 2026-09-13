@@ -237,13 +237,13 @@ class Smb2StatVfs {
 
   @override
   int get hashCode => Object.hash(
-        blockSize,
-        fragmentSize,
-        totalBlocks,
-        freeBlocks,
-        availableBlocks,
-        maxNameLength,
-      );
+    blockSize,
+    fragmentSize,
+    totalBlocks,
+    freeBlocks,
+    availableBlocks,
+    maxNameLength,
+  );
 
   @override
   String toString() =>

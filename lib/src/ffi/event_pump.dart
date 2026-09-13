@@ -38,7 +38,7 @@ class Smb2OpResult {
 class Smb2EventPump {
   /// Creates a pump backed by [lifecycle] completion slots.
   Smb2EventPump(this._native, this._lifecycle)
-      : _poller = _Poller.forPlatform();
+    : _poller = _Poller.forPlatform();
 
   final LibSmb2Bindings _native;
   final NativeLifecycle _lifecycle;
@@ -60,10 +60,7 @@ class Smb2EventPump {
       throw const Smb2Exception('SMB2 context has already been destroyed');
     }
 
-    final slot = _lifecycle.slotCreate(
-      context,
-      copyCString: copyCString,
-    );
+    final slot = _lifecycle.slotCreate(context, copyCString: copyCString);
     if (slot == nullptr) {
       throw Smb2Exception(
         '$opName: failed to allocate completion state',
@@ -132,8 +129,9 @@ class Smb2EventPump {
     int errno = 0,
   }) {
     final ptr = _native.smb2_get_error(ctx);
-    final msg =
-        ptr == nullptr ? 'Unknown error' : ptr.cast<Utf8>().toDartString();
+    final msg = ptr == nullptr
+        ? 'Unknown error'
+        : ptr.cast<Utf8>().toDartString();
     final type = errno != 0
         ? Smb2ErrorType.fromErrno(errno)
         : Smb2ErrorType.fromMessage(msg);
@@ -154,8 +152,8 @@ const int _enomem = 12;
 final int _etimedout = Platform.isWindows
     ? 138
     : (Platform.isMacOS || Platform.isIOS)
-        ? 60
-        : 110;
+    ? 60
+    : 110;
 
 // ─── poll() abstraction ─────────────────────────────────────────────────────
 
@@ -188,16 +186,10 @@ final class _PollFdPosix extends Struct {
   external int revents;
 }
 
-typedef _PosixPollNative = Int32 Function(
-  Pointer<_PollFdPosix> fds,
-  UnsignedLong nfds,
-  Int32 timeout,
-);
-typedef _PosixPollDart = int Function(
-  Pointer<_PollFdPosix> fds,
-  int nfds,
-  int timeout,
-);
+typedef _PosixPollNative =
+    Int32 Function(Pointer<_PollFdPosix> fds, UnsignedLong nfds, Int32 timeout);
+typedef _PosixPollDart =
+    int Function(Pointer<_PollFdPosix> fds, int nfds, int timeout);
 
 /// EINTR is 4 on every supported POSIX platform (Linux, Android/bionic,
 /// macOS, iOS).
@@ -213,8 +205,10 @@ class _PosixPoller implements _Poller {
     final process = DynamicLibrary.process();
     for (final name in ['__error', '__errno_location', '__errno']) {
       if (process.providesSymbol(name)) {
-        return process.lookupFunction<Pointer<Int32> Function(),
-            Pointer<Int32> Function()>(name);
+        return process.lookupFunction<
+          Pointer<Int32> Function(),
+          Pointer<Int32> Function()
+        >(name);
       }
     }
     throw UnsupportedError('dart_smb2: no errno symbol found in this libc');
@@ -263,20 +257,15 @@ final class _WsaPollFd extends Struct {
   external int revents;
 }
 
-typedef _WsaPollNative = Int32 Function(
-  Pointer<_WsaPollFd> fds,
-  Uint32 nfds,
-  Int32 timeout,
-);
-typedef _WsaPollDart = int Function(
-  Pointer<_WsaPollFd> fds,
-  int nfds,
-  int timeout,
-);
+typedef _WsaPollNative =
+    Int32 Function(Pointer<_WsaPollFd> fds, Uint32 nfds, Int32 timeout);
+typedef _WsaPollDart =
+    int Function(Pointer<_WsaPollFd> fds, int nfds, int timeout);
 
 class _WsaPoller implements _Poller {
-  static final _WsaPollDart _wsaPoll = DynamicLibrary.open('ws2_32.dll')
-      .lookupFunction<_WsaPollNative, _WsaPollDart>('WSAPoll');
+  static final _WsaPollDart _wsaPoll = DynamicLibrary.open(
+    'ws2_32.dll',
+  ).lookupFunction<_WsaPollNative, _WsaPollDart>('WSAPoll');
 
   final Pointer<_WsaPollFd> _pfd = calloc<_WsaPollFd>();
 
@@ -295,10 +284,6 @@ class _WsaPoller implements _Poller {
       ..revents = 0;
     final rc = _wsaPoll(_pfd, 1, timeoutMs);
     if (rc >= 0) return _pfd.ref.revents;
-    throw const Smb2Exception(
-      'WSAPoll failed',
-      0,
-      Smb2ErrorType.connection,
-    );
+    throw const Smb2Exception('WSAPoll failed', 0, Smb2ErrorType.connection);
   }
 }

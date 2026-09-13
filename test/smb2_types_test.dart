@@ -17,8 +17,10 @@ void main() {
 
     test('isDisk is true for a disk tree', () {
       expect(
-        const Smb2ShareInfo(name: 'Public', type: Smb2ShareType.diskTree)
-            .isDisk,
+        const Smb2ShareInfo(
+          name: 'Public',
+          type: Smb2ShareType.diskTree,
+        ).isDisk,
         isTrue,
       );
       expect(
@@ -39,16 +41,20 @@ void main() {
 
     test('isHidden detects a trailing-\$ name even without the flag', () {
       expect(
-        const Smb2ShareInfo(name: 'ADMIN\$', type: Smb2ShareType.diskTree)
-            .isHidden,
+        const Smb2ShareInfo(
+          name: 'ADMIN\$',
+          type: Smb2ShareType.diskTree,
+        ).isHidden,
         isTrue,
       );
     });
 
     test('isHidden is false for a plain share', () {
       expect(
-        const Smb2ShareInfo(name: 'Music', type: Smb2ShareType.diskTree)
-            .isHidden,
+        const Smb2ShareInfo(
+          name: 'Music',
+          type: Smb2ShareType.diskTree,
+        ).isHidden,
         isFalse,
       );
     });
@@ -137,11 +143,11 @@ void main() {
 
   group('value equality', () {
     Smb2Stat stat({int size = 1}) => Smb2Stat(
-          type: Smb2FileType.file,
-          size: size,
-          modified: DateTime.utc(2024),
-          created: DateTime.utc(2024),
-        );
+      type: Smb2FileType.file,
+      size: size,
+      modified: DateTime.utc(2024),
+      created: DateTime.utc(2024),
+    );
 
     test('Smb2ShareInfo equals by value and shares a hashCode', () {
       const a = Smb2ShareInfo(name: 'Public', type: 0);

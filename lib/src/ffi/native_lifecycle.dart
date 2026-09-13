@@ -10,12 +10,13 @@ typedef Smb2InitNative = ffi.Pointer<smb2_context> Function();
 typedef _DestroyNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 final Map<int, ffi.NativeFinalizer> _ownerFinalizers = {};
 
-typedef _CommandNative = ffi.Void Function(
-  ffi.Pointer<smb2_context>,
-  ffi.Int,
-  ffi.Pointer<ffi.Void>,
-  ffi.Pointer<ffi.Void>,
-);
+typedef _CommandNative =
+    ffi.Void Function(
+      ffi.Pointer<smb2_context>,
+      ffi.Int,
+      ffi.Pointer<ffi.Void>,
+      ffi.Pointer<ffi.Void>,
+    );
 
 /// Bindings for the native owner and completion-slot helper.
 ///
@@ -25,10 +26,11 @@ typedef _CommandNative = ffi.Void Function(
 class NativeLifecycle {
   /// Loads and validates the lifecycle helper ABI from [library].
   NativeLifecycle(ffi.DynamicLibrary library)
-      : _abi = library.lookupFunction<ffi.Int32 Function(), int Function()>(
-          'dsmb_lifecycle_abi_version',
-        ),
-        _ownerInit = library.lookupFunction<
+    : _abi = library.lookupFunction<ffi.Int32 Function(), int Function()>(
+        'dsmb_lifecycle_abi_version',
+      ),
+      _ownerInit = library
+          .lookupFunction<
             ffi.Pointer<ffi.Void> Function(
               ffi.Pointer<ffi.NativeFunction<Smb2InitNative>>,
               ffi.Pointer<ffi.NativeFunction<_DestroyNative>>,
@@ -36,52 +38,56 @@ class NativeLifecycle {
             ffi.Pointer<ffi.Void> Function(
               ffi.Pointer<ffi.NativeFunction<Smb2InitNative>>,
               ffi.Pointer<ffi.NativeFunction<_DestroyNative>>,
-            )>('dsmb_owner_init'),
-        _ownerContext = library.lookupFunction<
+            )
+          >('dsmb_owner_init'),
+      _ownerContext = library
+          .lookupFunction<
             ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Void>),
-            ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Void>)>(
-          'dsmb_owner_context',
-        ),
-        _ownerDestroy = library.lookupFunction<
+            ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Void>)
+          >('dsmb_owner_context'),
+      _ownerDestroy = library
+          .lookupFunction<
             ffi.Void Function(ffi.Pointer<ffi.Void>),
-            void Function(ffi.Pointer<ffi.Void>)>('dsmb_owner_destroy'),
-        _ownerDestroyPointer =
-            library.lookup<ffi.NativeFunction<_DestroyNative>>(
-          'dsmb_owner_destroy',
-        ),
-        _slotCreate = library.lookupFunction<
-            ffi.Pointer<ffi.Void> Function(
-              ffi.Pointer<ffi.Void>,
-              ffi.Int32,
-            ),
-            ffi.Pointer<ffi.Void> Function(
-              ffi.Pointer<ffi.Void>,
-              int,
-            )>('dsmb_slot_create'),
-        _slotCallback = library.lookupFunction<
+            void Function(ffi.Pointer<ffi.Void>)
+          >('dsmb_owner_destroy'),
+      _ownerDestroyPointer = library.lookup<ffi.NativeFunction<_DestroyNative>>(
+        'dsmb_owner_destroy',
+      ),
+      _slotCreate = library
+          .lookupFunction<
+            ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Void>, ffi.Int32),
+            ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Void>, int)
+          >('dsmb_slot_create'),
+      _slotCallback = library
+          .lookupFunction<
             ffi.Pointer<ffi.NativeFunction<_CommandNative>> Function(),
-            ffi.Pointer<ffi.NativeFunction<_CommandNative>> Function()>(
-          'dsmb_slot_callback',
-        ),
-        _slotDone = library.lookupFunction<
+            ffi.Pointer<ffi.NativeFunction<_CommandNative>> Function()
+          >('dsmb_slot_callback'),
+      _slotDone = library
+          .lookupFunction<
             ffi.Int32 Function(ffi.Pointer<ffi.Void>),
-            int Function(ffi.Pointer<ffi.Void>)>('dsmb_slot_done'),
-        _slotStatus = library.lookupFunction<
+            int Function(ffi.Pointer<ffi.Void>)
+          >('dsmb_slot_done'),
+      _slotStatus = library
+          .lookupFunction<
             ffi.Int32 Function(ffi.Pointer<ffi.Void>),
-            int Function(ffi.Pointer<ffi.Void>)>('dsmb_slot_status'),
-        _slotData = library.lookupFunction<
+            int Function(ffi.Pointer<ffi.Void>)
+          >('dsmb_slot_status'),
+      _slotData = library
+          .lookupFunction<
             ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Void>),
-            ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Void>)>(
-          'dsmb_slot_data',
-        ),
-        _slotCString = library.lookupFunction<
+            ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Void>)
+          >('dsmb_slot_data'),
+      _slotCString = library
+          .lookupFunction<
             ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Void>),
-            ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Void>)>(
-          'dsmb_slot_cstring',
-        ),
-        _slotFree = library.lookupFunction<
+            ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Void>)
+          >('dsmb_slot_cstring'),
+      _slotFree = library
+          .lookupFunction<
             ffi.Void Function(ffi.Pointer<ffi.Void>),
-            void Function(ffi.Pointer<ffi.Void>)>('dsmb_slot_free') {
+            void Function(ffi.Pointer<ffi.Void>)
+          >('dsmb_slot_free') {
     if (_abi() != 1) {
       throw StateError('Unsupported dart_smb2 lifecycle helper ABI');
     }
@@ -95,14 +101,15 @@ class NativeLifecycle {
   final ffi.Pointer<ffi.Void> Function(
     ffi.Pointer<ffi.NativeFunction<Smb2InitNative>>,
     ffi.Pointer<ffi.NativeFunction<_DestroyNative>>,
-  ) _ownerInit;
+  )
+  _ownerInit;
   final ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Void>) _ownerContext;
   final void Function(ffi.Pointer<ffi.Void>) _ownerDestroy;
   final ffi.Pointer<ffi.NativeFunction<_DestroyNative>> _ownerDestroyPointer;
   late final ffi.NativeFinalizer _finalizer;
   final ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Void>, int) _slotCreate;
   final ffi.Pointer<ffi.NativeFunction<_CommandNative>> Function()
-      _slotCallback;
+  _slotCallback;
   final int Function(ffi.Pointer<ffi.Void>) _slotDone;
   final int Function(ffi.Pointer<ffi.Void>) _slotStatus;
   final ffi.Pointer<ffi.Void> Function(ffi.Pointer<ffi.Void>) _slotData;
@@ -113,8 +120,9 @@ class NativeLifecycle {
   NativeSmb2Context create(
     ffi.Pointer<ffi.NativeFunction<Smb2InitNative>> init,
     ffi.Pointer<
-            ffi.NativeFunction<ffi.Void Function(ffi.Pointer<smb2_context>)>>
-        destroy,
+      ffi.NativeFunction<ffi.Void Function(ffi.Pointer<smb2_context>)>
+    >
+    destroy,
   ) {
     final owner = _ownerInit(init, destroy.cast());
     if (owner == ffi.nullptr) {
@@ -132,8 +140,7 @@ class NativeLifecycle {
   ffi.Pointer<ffi.Void> slotCreate(
     NativeSmb2Context context, {
     bool copyCString = false,
-  }) =>
-      _slotCreate(context.owner, copyCString ? 1 : 0);
+  }) => _slotCreate(context.owner, copyCString ? 1 : 0);
 
   /// The native C completion callback shared by every slot.
   smb2_command_cb get slotCallback => _slotCallback();

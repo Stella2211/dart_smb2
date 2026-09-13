@@ -75,9 +75,9 @@ class Smb2Client implements Finalizable {
   late final NativeLifecycle _lifecycle;
   late final Smb2EventPump _pump;
   late final Pointer<NativeFunction<Pointer<smb2_context> Function()>>
-      _initContext;
+  _initContext;
   late final Pointer<NativeFunction<Void Function(Pointer<smb2_context>)>>
-      _destroyContext;
+  _destroyContext;
   NativeSmb2Context? _context;
 
   Pointer<smb2_context> get _ctx =>
@@ -90,14 +90,14 @@ class Smb2Client implements Finalizable {
   Smb2Client._(this._lib) : _native = LibSmb2Bindings(_lib) {
     _lifecycle = NativeLifecycle(openLifecycleLibrary());
     _pump = Smb2EventPump(_native, _lifecycle);
-    _initContext =
-        _lib.lookup<NativeFunction<Pointer<smb2_context> Function()>>(
-      'smb2_init_context',
-    );
-    _destroyContext =
-        _lib.lookup<NativeFunction<Void Function(Pointer<smb2_context>)>>(
-      'smb2_destroy_context',
-    );
+    _initContext = _lib
+        .lookup<NativeFunction<Pointer<smb2_context> Function()>>(
+          'smb2_init_context',
+        );
+    _destroyContext = _lib
+        .lookup<NativeFunction<Void Function(Pointer<smb2_context>)>>(
+          'smb2_destroy_context',
+        );
   }
 
   /// Create a client. The native library is resolved automatically via
@@ -206,8 +206,9 @@ class Smb2Client implements Finalizable {
           for (var i = 0; i < count; i++) {
             final info = (infosBase + i).ref;
             final namePtr = info.netname.utf8;
-            final name =
-                namePtr == nullptr ? '' : namePtr.cast<Utf8>().toDartString();
+            final name = namePtr == nullptr
+                ? ''
+                : namePtr.cast<Utf8>().toDartString();
             results.add(Smb2ShareInfo(name: name, type: info.type));
           }
           return results;
@@ -387,8 +388,9 @@ class Smb2Client implements Finalizable {
         // recycled on the next call — copy what we need immediately.
         final name = ent.ref.name.cast<Utf8>().toDartString();
         if (name == '.' || name == '..') continue;
-        results
-            .add(Smb2DirEntry(name: name, stat: _statFromNative(ent.ref.st)));
+        results.add(
+          Smb2DirEntry(name: name, stat: _statFromNative(ent.ref.st)),
+        );
       }
       return results;
     } finally {
@@ -702,11 +704,7 @@ class Smb2Client implements Finalizable {
   Smb2Handle openFileHandleWrite(String path) {
     _ensureConnected();
     return Smb2Handle._(
-      _openHandle(
-        path,
-        _flags.wronly | _flags.creat,
-        'Open for write failed',
-      ),
+      _openHandle(path, _flags.wronly | _flags.creat, 'Open for write failed'),
     );
   }
 
@@ -866,14 +864,13 @@ class Smb2Client implements Finalizable {
     String opName,
     int Function(smb2_command_cb cb, Pointer<Void> cbData) start, {
     bool copyCString = false,
-  }) =>
-      _pump.run(
-        _context ?? (throw const Smb2Exception('Not connected')),
-        opName: opName,
-        start: start,
-        timeoutSeconds: _timeoutSeconds,
-        copyCString: copyCString,
-      );
+  }) => _pump.run(
+    _context ?? (throw const Smb2Exception('Not connected')),
+    opName: opName,
+    start: start,
+    timeoutSeconds: _timeoutSeconds,
+    copyCString: copyCString,
+  );
 
   /// Run one async operation and throw on a negative completion status.
   /// Returns the (non-negative) status — the byte count for pread/pwrite.
@@ -923,12 +920,11 @@ class Smb2Client implements Finalizable {
     int length,
     int offset,
     String errPrefix,
-  ) =>
-      _checkedOp(
-        errPrefix,
-        (cb, cbData) =>
-            _native.smb2_pread_async(_ctx, fh, buf, length, offset, cb, cbData),
-      );
+  ) => _checkedOp(
+    errPrefix,
+    (cb, cbData) =>
+        _native.smb2_pread_async(_ctx, fh, buf, length, offset, cb, cbData),
+  );
 
   /// File size via fstat on an open handle.
   int _fstatSize(Pointer<smb2fh> fh, String errPrefix) {
@@ -1008,8 +1004,9 @@ class Smb2Client implements Finalizable {
     int errno,
   ) {
     final ptr = _native.smb2_get_error(ctx);
-    final msg =
-        ptr == nullptr ? 'Unknown error' : ptr.cast<Utf8>().toDartString();
+    final msg = ptr == nullptr
+        ? 'Unknown error'
+        : ptr.cast<Utf8>().toDartString();
     return Smb2Exception(
       '$prefix: $msg',
       errno,
@@ -1102,26 +1099,26 @@ const int _disconnectTimeoutSeconds = 5;
 const int _writeChunkFallback = 1024 * 1024;
 
 Smb2Exception _negativeLength() => const Smb2Exception(
-      'Truncate length must be non-negative',
-      22,
-      Smb2ErrorType.invalidParam,
-    );
+  'Truncate length must be non-negative',
+  22,
+  Smb2ErrorType.invalidParam,
+);
 
 Smb2FileType _parseType(int type) => switch (type) {
-      SMB2_TYPE_DIRECTORY => Smb2FileType.directory,
-      SMB2_TYPE_LINK => Smb2FileType.link,
-      _ => Smb2FileType.file, // SMB2_TYPE_FILE (0) and any unexpected value.
-    };
+  SMB2_TYPE_DIRECTORY => Smb2FileType.directory,
+  SMB2_TYPE_LINK => Smb2FileType.link,
+  _ => Smb2FileType.file, // SMB2_TYPE_FILE (0) and any unexpected value.
+};
 
 DateTime _toUtc(int seconds) =>
     DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true);
 
 Smb2Stat _statFromNative(smb2_stat_64 st) => Smb2Stat(
-      type: _parseType(st.smb2_type),
-      size: st.smb2_size,
-      modified: _toUtc(st.smb2_mtime),
-      created: _toUtc(st.smb2_btime),
-    );
+  type: _parseType(st.smb2_type),
+  size: st.smb2_size,
+  modified: _toUtc(st.smb2_mtime),
+  created: _toUtc(st.smb2_btime),
+);
 
 /// Apply optional credentials + timeout to a freshly-created context before
 /// connecting. Centralised so the connect and share-enum paths can't drift

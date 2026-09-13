@@ -165,25 +165,23 @@ class Smb2Pool {
     String? user,
     String? password,
     String? domain,
-  }) =>
-      _nextWorker.send('listShares', {
-        'host': host,
-        'user': user,
-        'password': password,
-        'domain': domain,
-      });
+  }) => _nextWorker.send('listShares', {
+    'host': host,
+    'user': user,
+    'password': password,
+    'domain': domain,
+  });
 
   /// Read [length] bytes from a file at [offset].
   Future<Uint8List> readFileRange(
     String path, {
     int offset = 0,
     required int length,
-  }) =>
-      _sendWithRetry('readRange', {
-        'path': path,
-        'offset': offset,
-        'length': length,
-      });
+  }) => _sendWithRetry('readRange', {
+    'path': path,
+    'offset': offset,
+    'length': length,
+  });
 
   /// Read an entire file into memory.
   Future<Uint8List> readFile(String path) =>
@@ -260,15 +258,8 @@ class Smb2Pool {
   // ─── File writing ──────────────────────────────────────────────────────
 
   /// Write [data] to a file at [offset], creating it if it doesn't exist.
-  Future<void> writeFileRange(
-    String path,
-    Uint8List data, {
-    int offset = 0,
-  }) =>
-      _sendWriteWithRetry('writeRange', data, {
-        'path': path,
-        'offset': offset,
-      });
+  Future<void> writeFileRange(String path, Uint8List data, {int offset = 0}) =>
+      _sendWriteWithRetry('writeRange', data, {'path': path, 'offset': offset});
 
   /// Write [data] to a file, creating or truncating it.
   Future<void> writeFile(String path, Uint8List data) =>
@@ -332,10 +323,9 @@ class Smb2Pool {
     Worker worker,
     String path,
   ) async {
-    final result = await worker.send<List<dynamic>>(
-      'openFileWithSize',
-      {'path': path},
-    );
+    final result = await worker.send<List<dynamic>>('openFileWithSize', {
+      'path': path,
+    });
     return (Smb2PoolHandle(worker, result[0] as int, path), result[1] as int);
   }
 
@@ -431,10 +421,9 @@ class Smb2Pool {
     _throwIfClosed(handle);
     handle.worker = await _reconnectWorker(handle.worker);
     _throwIfClosed(handle);
-    final newId = await handle.worker.send<int>(
-      'openFileWrite',
-      {'path': handle.path},
-    );
+    final newId = await handle.worker.send<int>('openFileWrite', {
+      'path': handle.path,
+    });
     if (handle.closed) {
       _closeOrphanHandle(handle.worker, newId);
       _throwClosedDuringRetry();
@@ -450,10 +439,9 @@ class Smb2Pool {
     _throwIfClosed(handle);
     handle.worker = await _reconnectWorker(handle.worker);
     _throwIfClosed(handle);
-    final newId = await handle.worker.send<int>(
-      'openFile',
-      {'path': handle.path},
-    );
+    final newId = await handle.worker.send<int>('openFile', {
+      'path': handle.path,
+    });
     if (handle.closed) {
       _closeOrphanHandle(handle.worker, newId);
       _throwClosedDuringRetry();
@@ -537,9 +525,7 @@ class Smb2Pool {
       var offset = 0;
       while (offset < size) {
         if (isCanceled?.call() ?? false) {
-          throw const Smb2Exception(
-            'Read canceled',
-          );
+          throw const Smb2Exception('Read canceled');
         }
         final remaining = size - offset;
         final toRead = remaining < chunkSize ? remaining : chunkSize;

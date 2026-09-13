@@ -44,12 +44,8 @@ class Worker {
   static const _diedDuringInit = 'Worker isolate exited during startup';
   static final Object _workerExited = Object();
 
-  Worker._(
-    this._sendPort,
-    this._isolate,
-    this._exitPort,
-    Future<void> exited,
-  ) : _exitedFuture = exited {
+  Worker._(this._sendPort, this._isolate, this._exitPort, Future<void> exited)
+    : _exitedFuture = exited {
     // NOTE: `_exitPort` is already being listened to by [spawn] (a
     // ReceivePort is single-subscription and can only ever be listened
     // to once), so death is observed through the shared [exited] future
