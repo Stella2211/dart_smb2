@@ -2,31 +2,11 @@
 // All rights reserved.
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
-/// Dart-side event pump for libsmb2's async API.
+/// Callback-free event pump for libsmb2's asynchronous API.
 ///
-/// This replaces libsmb2's own sync wrappers (`sync.c`): every operation is
-/// started with its upstream `*_async` function and then driven to
-/// completion by a poll/`smb2_service` loop owned by Dart. Two problems
-/// with the C sync wrappers made this necessary:
-///
-///   1. `sync.c`'s `wait_for_reply` aborts with "Poll failed" whenever
-///      `poll()` returns `EINTR` — and the Dart/ART VMs routinely interrupt
-///      syscalls with signals (GC safepoints, profilers). The Dart loop
-///      below simply retries on `EINTR`, which is the standard treatment.
-///   2. The sync wrappers swallow the completion `status` for several
-///      compound operations (stat/mkdir/rename/…), leaving the context's
-///      NT-error stale. Driving the callback ourselves hands us the fresh
-///      `-errno` for every operation.
-///
-/// Both were previously worked around by patching libsmb2 itself; owning
-/// the wait loop in Dart lets the package run against **unmodified
-/// upstream libsmb2**.
-///
-/// Threading model: everything here is synchronous and isolate-local.
-/// `smb2_service` is only ever called from the same thread that started
-/// the operation, so completion callbacks (created with
-/// [NativeCallable.isolateLocal]) always fire synchronously inside
-/// [Smb2EventPump.run] — never concurrently.
+/// Completion callbacks write into native C slots. Dart only polls those
+/// slots after [smb2_service] returns, so context destruction never enters
+/// the Dart VM through a native callback.
 library;
 
 import 'dart:ffi';
@@ -37,163 +17,82 @@ import 'package:ffi/ffi.dart';
 import '../smb2_error_type.dart';
 import '../smb2_exceptions.dart';
 import 'libsmb2_bindings.dart';
+import 'native_lifecycle.dart';
 
 /// Result of one completed async libsmb2 operation.
 class Smb2OpResult {
-  /// The `status` value passed to the completion callback.
-  ///
-  /// `>= 0` means success (for pread/pwrite it is the byte count);
-  /// a negative value is `-errno`.
+  /// The completion status. Non-negative values indicate success.
   final int status;
 
-  /// The `command_data` pointer passed to the completion callback
-  /// (operation-specific: `smb2fh*`, `smb2dir*`, response trees, …).
-  ///
-  /// Only pointers that stay valid after the callback returns may be
-  /// consumed through this field. For callback-transient data (e.g.
-  /// `smb2_readlink_async`'s target string, which libsmb2 frees as soon
-  /// as the callback returns) pass a `capture` function to
-  /// [Smb2EventPump.run] and read [captured] instead.
+  /// The operation-specific command data pointer.
   final Pointer<Void> data;
 
-  /// The value produced by the `capture` callback inside the completion
-  /// callback, while [data] was still valid. `null` when no capture was
-  /// requested (or the capture itself returned null).
-  final Object? captured;
+  /// A copied callback-transient C string, when requested by the operation.
+  final String? captured;
 
-  /// Creates a result snapshot of one completed operation.
+  /// Creates a snapshot from a completed native slot.
   const Smb2OpResult(this.status, this.data, this.captured);
 }
 
-/// Mutable slot the native completion callback writes into.
-class _OpSlot {
-  final int id;
-  final Object? Function(int status, Pointer<Void> data)? capture;
-  bool finished = false;
-  int status = 0;
-  Pointer<Void> data = nullptr;
-  Object? captured;
-  _OpSlot(this.id, this.capture);
-}
-
-/// Native signature of libsmb2's completion callback.
-typedef _CbNative = Void Function(
-  Pointer<smb2_context> smb2,
-  Int status,
-  Pointer<Void> commandData,
-  Pointer<Void> cbData,
-);
-
-/// Drives libsmb2 async operations to completion with a Dart-owned
-/// poll loop. One instance per [LibSmb2Bindings] holder (per isolate);
-/// operations are strictly sequential.
+/// Drives one context's sequential asynchronous operations to completion.
 class Smb2EventPump {
+  /// Creates a pump backed by [lifecycle] completion slots.
+  Smb2EventPump(this._native, this._lifecycle)
+      : _poller = _Poller.forPlatform();
+
   final LibSmb2Bindings _native;
+  final NativeLifecycle _lifecycle;
   final _Poller _poller;
 
-  NativeCallable<_CbNative>? _callable;
-  _OpSlot? _active;
-  int _opSeq = 0;
-
-  /// Creates a pump over [LibSmb2Bindings] with the host platform's poller.
-  Smb2EventPump(this._native) : _poller = _Poller.forPlatform();
-
-  /// The persistent native callback. Created lazily, recreated after
-  /// [dispose]. Keeping ONE callable per pump (instead of one per
-  /// operation) means a completion that arrives late — e.g. delivered by
-  /// `smb2_destroy_context` after an operation was abandoned on timeout —
-  /// never dereferences a freed function pointer; the op-id check below
-  /// just ignores it.
-  smb2_command_cb get _cb {
-    final existing = _callable;
-    if (existing != null) return existing.nativeFunction;
-    final created = NativeCallable<_CbNative>.isolateLocal(_onComplete);
-    created.keepIsolateAlive = false;
-    _callable = created;
-    return created.nativeFunction;
-  }
-
-  void _onComplete(
-    Pointer<smb2_context> smb2,
-    int status,
-    Pointer<Void> commandData,
-    Pointer<Void> cbData,
-  ) {
-    final slot = _active;
-    // cbData carries the op id — a completion for an operation that was
-    // abandoned (deadline breach) must not touch the current slot.
-    if (slot == null || slot.id != cbData.address) return;
-    slot.finished = true;
-    slot.status = status;
-    slot.data = commandData;
-    final capture = slot.capture;
-    if (capture != null) {
-      // Runs while commandData is still valid — some operations
-      // (readlink) free it the moment this callback returns.
-      slot.captured = capture(status, commandData);
-    }
-  }
-
-  /// Release the native callable. Safe to call repeatedly; the pump
-  /// recreates the callable if used again. Only call when no operation
-  /// can still be pending on any live context (i.e. after the context
-  /// has been destroyed).
-  void dispose() {
-    _callable?.close();
-    _callable = null;
-    _active = null;
-  }
-
-  /// Start one async operation via [start] and pump the context's socket
-  /// until the completion callback fires.
-  ///
-  /// [start] receives the native callback + cb_data to pass to the
-  /// `*_async` function and must return that function's return code.
-  ///
-  /// [timeoutSeconds] mirrors `smb2_set_timeout`: PDU-level timeouts are
-  /// raised by `smb2_service` itself (invoked at least once a second);
-  /// the outer deadline here additionally covers the TCP-connect phase
-  /// where no PDU exists yet. `0` disables both (waits forever).
-  ///
-  /// Throws [Smb2Exception] if the operation could not be started or the
-  /// transport failed; completion status (including negative statuses) is
-  /// returned to the caller for operation-specific handling.
+  /// Starts one operation and services its socket until the native slot is
+  /// complete. If a started operation must be abandoned, this method destroys
+  /// the whole context before unwinding so every pointer passed to libsmb2
+  /// remains valid until its callback has been cancelled or delivered.
   Smb2OpResult run(
-    Pointer<smb2_context> ctx, {
+    NativeSmb2Context context, {
     required String opName,
     required int Function(smb2_command_cb cb, Pointer<Void> cbData) start,
     int timeoutSeconds = 0,
-    Object? Function(int status, Pointer<Void> data)? capture,
+    bool copyCString = false,
   }) {
-    final slot = _OpSlot(++_opSeq, capture);
-    _active = slot;
+    final ctx = context.pointer;
+    if (ctx == nullptr) {
+      throw const Smb2Exception('SMB2 context has already been destroyed');
+    }
+
+    final slot = _lifecycle.slotCreate(
+      context,
+      copyCString: copyCString,
+    );
+    if (slot == nullptr) {
+      throw Smb2Exception(
+        '$opName: failed to allocate completion state',
+        _enomem,
+        Smb2ErrorType.fromErrno(_enomem),
+      );
+    }
+
+    var accepted = false;
+    var slotDestroyedWithContext = false;
     try {
-      final rc = start(_cb, Pointer<Void>.fromAddress(slot.id));
+      final rc = start(_lifecycle.slotCallback, slot);
       if (rc < 0) {
         throw _error(ctx, opName, errno: -rc);
       }
+      accepted = true;
 
-      // Outer deadline with a small grace period: when both fire, prefer
-      // libsmb2's own PDU timeout (surfaced as a normal -ETIMEDOUT
-      // completion) over the fallback below, which has to abandon the op.
       final deadline = timeoutSeconds > 0
           ? DateTime.now().add(Duration(seconds: timeoutSeconds + 2))
           : null;
 
-      while (!slot.finished) {
+      while (!_lifecycle.slotDone(slot)) {
         final fd = _native.smb2_get_fd(ctx);
         final events = _native.smb2_which_events(ctx);
-
-        // 1000 ms cap so smb2_service runs at least once a second — that
-        // is what drives libsmb2's PDU timeout processing (see the
-        // smb2_set_timeout docs).
         final revents = _poller.poll(fd, events, 1000);
 
-        // smb2_service also processes PDU timeouts, so call it on idle
-        // wakeups too (revents == 0 is explicitly safe upstream).
-        final rcService = _native.smb2_service(ctx, revents);
-        if (slot.finished) break;
-        if (rcService < 0) {
+        final serviceResult = _native.smb2_service(ctx, revents);
+        if (_lifecycle.slotDone(slot)) break;
+        if (serviceResult < 0) {
           throw _error(ctx, opName);
         }
 
@@ -205,18 +104,28 @@ class Smb2EventPump {
           );
         }
       }
-      return Smb2OpResult(slot.status, slot.data, slot.captured);
+
+      return Smb2OpResult(
+        _lifecycle.slotStatus(slot),
+        _lifecycle.slotData(slot),
+        copyCString ? _lifecycle.slotCString(slot) : null,
+      );
+    } catch (_) {
+      if (accepted && !_lifecycle.slotDone(slot)) {
+        // owner_destroy invokes libsmb2's pending callbacks entirely in C and
+        // releases their slots. Do this before an Arena or I/O buffer in the
+        // caller can leave scope.
+        slotDestroyedWithContext = true;
+        context.abort();
+      }
+      rethrow;
     } finally {
-      _active = null;
+      if (!slotDestroyedWithContext) {
+        _lifecycle.slotFree(slot);
+      }
     }
   }
 
-  /// Build a typed exception from the context's current error message.
-  ///
-  /// With the async API the freshest signal is [errno] (from a callback
-  /// status or an `*_async` return code) — classify on it first and use
-  /// the message only as a fallback, because `smb2_get_error` is not
-  /// reset between operations and may carry stale text.
   Smb2Exception _error(
     Pointer<smb2_context> ctx,
     String prefix, {
@@ -232,14 +141,16 @@ class Smb2EventPump {
       '$prefix: $msg',
       errno,
       type == Smb2ErrorType.unknown && errno == 0
-          ? Smb2ErrorType.connection // transport failed with no errno signal
+          ? Smb2ErrorType.connection
           : type,
     );
   }
 }
 
-/// ETIMEDOUT for the host platform (110 Linux/Android, 60 Darwin,
-/// 138 Windows CRT) — used for the pump's own fallback deadline.
+/// ENOMEM has value 12 on every supported target's C runtime.
+const int _enomem = 12;
+
+/// ETIMEDOUT for the host platform.
 final int _etimedout = Platform.isWindows
     ? 138
     : (Platform.isMacOS || Platform.isIOS)

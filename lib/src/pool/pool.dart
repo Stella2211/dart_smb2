@@ -92,13 +92,9 @@ class Smb2Pool {
         workerList.add(await Worker.spawn(params));
       }
     } catch (_) {
-      // Spawn failure: tear down any workers that already came up so we
-      // don't leak isolates on the way out. `close()` is fire-and-forget
-      // here because the caller is about to see `rethrow` and we don't
-      // want to mask the original error with a teardown timeout.
-      for (final w in workerList) {
-        w.close().ignore();
-      }
+      // Spawn failure: wait for every initialized worker to release its
+      // native context and exit before reporting the failure.
+      await Future.wait(workerList.map((w) => w.close()));
       rethrow;
     }
     return Smb2Pool._(workerList, params);
@@ -648,6 +644,7 @@ class Smb2Pool {
 
   /// Disconnect all workers and release resources.
   Future<void> disconnect() async {
+    if (_closed && _workers.isEmpty) return;
     _closed = true;
     await Future.wait(_workers.map((w) => w.close()));
     _workers.clear();
@@ -720,17 +717,31 @@ class Smb2Pool {
 
     final future = _doReconnect(worker);
     _reconnectsInFlight[worker] = future;
-    future.whenComplete(() => _reconnectsInFlight.remove(worker));
+    future.then<void>(
+      (_) => _reconnectsInFlight.remove(worker),
+      onError: (Object _, StackTrace __) {
+        _reconnectsInFlight.remove(worker);
+      },
+    );
     return future;
   }
 
   Future<Worker> _doReconnect(Worker worker) async {
+    if (_closed) throw const Smb2Exception('Pool is closed');
     final idx = _workers.indexOf(worker);
     if (idx < 0) return worker;
-    try {
-      await worker.close();
-    } catch (_) {}
+    await worker.close();
+    if (_closed) throw const Smb2Exception('Pool is closed');
+    if (idx >= _workers.length || !identical(_workers[idx], worker)) {
+      throw const Smb2Exception('Worker was replaced during reconnect');
+    }
     final newWorker = await Worker.spawn(_params);
+    if (_closed ||
+        idx >= _workers.length ||
+        !identical(_workers[idx], worker)) {
+      await newWorker.close();
+      throw const Smb2Exception('Pool closed during worker reconnect');
+    }
     _workers[idx] = newWorker;
     return newWorker;
   }

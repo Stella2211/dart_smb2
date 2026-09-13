@@ -17,12 +17,18 @@ let package = Package(
             name: "dart_smb2",
             dependencies: [
                 "libsmb2",
+                "dart_smb2_lifecycle",
                 .product(name: "FlutterFramework", package: "FlutterFramework"),
             ],
             path: "Sources/dart_smb2",
             resources: [
                 .process("Resources")
             ]
+        ),
+        .target(
+            name: "dart_smb2_lifecycle",
+            path: "Sources/dart_smb2_lifecycle",
+            publicHeadersPath: "include"
         ),
         .binaryTarget(
             name: "libsmb2",

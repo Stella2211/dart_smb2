@@ -4,8 +4,8 @@
 
 /// Main-isolate proxy for a single worker isolate. [Worker.spawn] kicks
 /// off the worker, [Worker.send] forwards a command, [Worker.close]
-/// asks it to disconnect cleanly (with a 5-second escape hatch) before
-/// killing the isolate.
+/// asks it to abort native resources locally and waits for the isolate to
+/// exit without killing it while a native callback may be pending.
 library;
 
 import 'dart:async';
@@ -24,6 +24,7 @@ class Worker {
   final SendPort _sendPort;
   final Isolate _isolate;
   final ReceivePort _exitPort;
+  final Future<void> _exitedFuture;
 
   /// Currently-awaited [send] completers. Tracked so that if the worker
   /// dies (Isolate-level exit OR explicit [close]) we can finish every
@@ -32,6 +33,8 @@ class Worker {
   final Set<Completer<dynamic>> _pending = {};
 
   bool _dead = false;
+  bool _closing = false;
+  Future<void>? _closeFuture;
 
   /// Sentinel returned by the `initPort` vs `exitPort` race in [spawn]
   /// when the isolate exits before ever sending an init result (e.g. an
@@ -39,13 +42,14 @@ class Worker {
   /// Without this race, such a death would leave `initPort.first`
   /// awaiting forever since nothing was ever sent on it.
   static const _diedDuringInit = 'Worker isolate exited during startup';
+  static final Object _workerExited = Object();
 
   Worker._(
     this._sendPort,
     this._isolate,
     this._exitPort,
     Future<void> exited,
-  ) {
+  ) : _exitedFuture = exited {
     // NOTE: `_exitPort` is already being listened to by [spawn] (a
     // ReceivePort is single-subscription and can only ever be listened
     // to once), so death is observed through the shared [exited] future
@@ -132,7 +136,7 @@ class Worker {
   /// and the other side is a no-op (the second check guards against
   /// `Completer.complete` being called twice).
   Future<T> send<T>(String cmd, Map<String, dynamic> args) async {
-    if (_dead) {
+    if (_dead || _closing) {
       throw const Smb2Exception(
         'Worker isolate is dead',
         null,
@@ -190,25 +194,69 @@ class Worker {
     _exitPort.close();
   }
 
-  /// Ask the worker to disconnect cleanly, then kill the isolate.
+  /// Ask the worker to abort native resources locally and exit cleanly.
   ///
-  /// Gives the worker 5 seconds to flush its current operation; if it
-  /// doesn't reply (already dead, stuck, …) we fall through to the
-  /// unconditional kill below. Either path ends with [_markDead] so any
-  /// pending sends don't hang forever.
-  Future<void> close() async {
+  /// The worker acknowledges only after its native context is safely
+  /// disposed. There is deliberately no time-based isolate kill: killing
+  /// while a native callback is pending can invoke the finalizer during
+  /// isolate unwinding and abort the process.
+  Future<void> close() {
+    final existing = _closeFuture;
+    if (existing != null) return existing;
+    final future = _closeImpl();
+    _closeFuture = future;
+    return future;
+  }
+
+  Future<void> _closeImpl() async {
     if (_dead) return;
+    _closing = true;
     final replyPort = ReceivePort();
-    _sendPort.send({'cmd': 'close', 'replyTo': replyPort.sendPort});
     try {
-      await replyPort.first.timeout(const Duration(seconds: 5));
-    } catch (_) {
-      // Worker may be unresponsive or already dead — kill immediately.
+      // Closing invalidates all outstanding requests. Complete them before
+      // waiting for the worker's native abort acknowledgement.
+      const error = Smb2Exception(
+        'Worker is closing',
+        null,
+        Smb2ErrorType.connection,
+      );
+      for (final c in _pending.toList()) {
+        if (!c.isCompleted) c.completeError(error);
+      }
+      _sendPort.send({'cmd': 'close', 'replyTo': replyPort.sendPort});
+      // worker_main aborts its native context without waiting for network
+      // CLOSE replies, then closes its command port. Never kill an isolate
+      // while a native callback may still be unwinding.
+      final result = await Future.any<dynamic>([
+        replyPort.first,
+        _exitedFuture.then((_) => _workerExited),
+      ]);
+      // An isolate which exits before replying has completed teardown. If it
+      // acknowledges first, wait for the actual isolate exit as well; an ACK
+      // only means that abort() returned, not that native callbacks are no
+      // longer able to run during isolate shutdown.
+      if (identical(result, _workerExited)) return;
+      if (result is ErrorMsg) {
+        throw Smb2Exception(
+          result.message,
+          result.errorCode,
+          result.errorTypeIndex != null
+              ? Smb2ErrorType.values[result.errorTypeIndex!]
+              : Smb2ErrorType.unknown,
+        );
+      }
+      if (result != true) {
+        throw const Smb2Exception(
+          'Worker close returned an invalid acknowledgement',
+          null,
+          Smb2ErrorType.connection,
+        );
+      }
+      await _exitedFuture;
     } finally {
       replyPort.close();
+      _markDead();
     }
-    _isolate.kill(priority: Isolate.immediate);
-    _markDead();
   }
 
   /// Test-only: kill the worker isolate immediately, without sending

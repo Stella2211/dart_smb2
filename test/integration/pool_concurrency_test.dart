@@ -160,6 +160,32 @@ void main() {
   });
 
   group('H2 — worker death does not hang pending sends', () {
+    test('close is coalesced and settles pending sends without an isolate kill',
+        () async {
+      final pool = await connect();
+      addTearDown(pool.disconnect);
+      final worker = poolWorkers(pool).single;
+
+      await worker.send<bool>('__inject_hang', const {});
+      final pending = pool.echo();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final firstClose = worker.close();
+      final secondClose = worker.close();
+      expect(identical(firstClose, secondClose), isTrue);
+      await Future.wait([firstClose, secondClose]);
+
+      final outcome = await pending
+          .then<Object?>((_) => 'ok')
+          .catchError((e) => e as Object)
+          .timeout(
+            const Duration(seconds: 3),
+            onTimeout: () => 'HUNG',
+          );
+      expect(outcome, isNot(equals('HUNG')));
+      expect(worker.isDead, isTrue);
+    });
+
     test('killForTest unblocks an in-flight hung send', () async {
       final pool = await connect();
       addTearDown(pool.disconnect);

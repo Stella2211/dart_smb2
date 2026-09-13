@@ -38,6 +38,7 @@ import 'package:ffi/ffi.dart';
 import 'ffi/event_pump.dart';
 import 'ffi/libsmb2_bindings.dart';
 import 'ffi/native_lib.dart';
+import 'ffi/native_lifecycle.dart';
 import 'smb2_error_type.dart';
 import 'smb2_exceptions.dart';
 import 'smb2_types.dart';
@@ -71,25 +72,31 @@ class Smb2Handle {
 class Smb2Client implements Finalizable {
   final DynamicLibrary _lib;
   final LibSmb2Bindings _native;
-  late final Smb2EventPump _pump = Smb2EventPump(_native);
-  Pointer<smb2_context> _ctx = nullptr;
-  late final NativeFinalizer _finalizer;
+  late final NativeLifecycle _lifecycle;
+  late final Smb2EventPump _pump;
+  late final Pointer<NativeFunction<Pointer<smb2_context> Function()>>
+      _initContext;
+  late final Pointer<NativeFunction<Void Function(Pointer<smb2_context>)>>
+      _destroyContext;
+  NativeSmb2Context? _context;
+
+  Pointer<smb2_context> get _ctx =>
+      _context?.pointer ?? nullptr.cast<smb2_context>();
 
   /// Timeout (seconds) applied to every operation on the connected
   /// context; mirrors the value passed to `smb2_set_timeout`. 0 = none.
   int _timeoutSeconds = 0;
 
   Smb2Client._(this._lib) : _native = LibSmb2Bindings(_lib) {
-    // Last-resort safety net for a leaked client: free the libsmb2
-    // context if the caller forgets to call `disconnect()`. The bound
-    // function is `smb2_destroy_context` (signature: void(void*)) — it
-    // closes the socket and releases internal allocations, but does NOT
-    // send a wire-level logoff first. Explicit `disconnect()` is still
-    // preferred so the server can reclaim the session immediately.
-    _finalizer = NativeFinalizer(
-      _lib.lookup<NativeFunction<Void Function(Pointer)>>(
-        'smb2_destroy_context',
-      ),
+    _lifecycle = NativeLifecycle(openLifecycleLibrary());
+    _pump = Smb2EventPump(_native, _lifecycle);
+    _initContext =
+        _lib.lookup<NativeFunction<Pointer<smb2_context> Function()>>(
+      'smb2_init_context',
+    );
+    _destroyContext =
+        _lib.lookup<NativeFunction<Void Function(Pointer<smb2_context>)>>(
+      'smb2_destroy_context',
     );
   }
 
@@ -124,12 +131,10 @@ class Smb2Client implements Finalizable {
     bool seal = false,
     bool signing = false,
   }) {
-    final ctx = _native.smb2_init_context();
-    if (ctx == nullptr) {
-      throw const Smb2Exception(
-        'Failed to create SMB2 context for share enumeration',
-      );
-    }
+    final context = _createContext(
+      'Failed to create SMB2 context for share enumeration',
+    );
+    final ctx = context.pointer;
 
     try {
       _applyCredentials(
@@ -150,7 +155,7 @@ class Smb2Client implements Finalizable {
         final pIpc = r'IPC$'.toNativeUtf8(allocator: arena).cast<Char>();
         final pUser = (user ?? '').toNativeUtf8(allocator: arena).cast<Char>();
         final res = _pump.run(
-          ctx,
+          context,
           opName: 'Connect to IPC\$ failed',
           start: (cb, cbData) => _native.smb2_connect_share_async(
             ctx,
@@ -171,7 +176,7 @@ class Smb2Client implements Finalizable {
         // SHARE_INFO_1 is value 1 in libsmb2's header — pass the typed enum
         // so it survives any future re-ordering of values upstream.
         final res = _pump.run(
-          ctx,
+          context,
           opName: 'Share enumeration failed',
           start: (cb, cbData) => _native.smb2_share_enum_async(
             ctx,
@@ -213,10 +218,10 @@ class Smb2Client implements Finalizable {
           _native.smb2_free_data(ctx, rep.cast());
         }
       } finally {
-        _disconnectQuiet(ctx);
+        _disconnectQuiet(context);
       }
     } finally {
-      _native.smb2_destroy_context(ctx);
+      context.abort();
     }
   }
 
@@ -241,12 +246,8 @@ class Smb2Client implements Finalizable {
   }) {
     if (isConnected) disconnect();
 
-    final ctx = _native.smb2_init_context();
-    if (ctx == nullptr) {
-      throw const Smb2Exception(
-        'Failed to create SMB2 context',
-      );
-    }
+    final context = _createContext('Failed to create SMB2 context');
+    final ctx = context.pointer;
 
     try {
       _applyCredentials(
@@ -271,7 +272,7 @@ class Smb2Client implements Finalizable {
         final pShare = share.toNativeUtf8(allocator: arena).cast<Char>();
         final pUser = (user ?? '').toNativeUtf8(allocator: arena).cast<Char>();
         final res = _pump.run(
-          ctx,
+          context,
           opName: 'Connect failed',
           start: (cb, cbData) => _native.smb2_connect_share_async(
             ctx,
@@ -288,14 +289,12 @@ class Smb2Client implements Finalizable {
         }
       });
     } catch (_) {
-      // Release the context so we don't leak libsmb2 internal allocations.
-      _native.smb2_destroy_context(ctx);
+      context.abort();
       rethrow;
     }
 
-    _ctx = ctx;
+    _context = context;
     _timeoutSeconds = timeoutSeconds;
-    _finalizer.attach(this, _ctx.cast(), detach: this);
   }
 
   /// Disconnect from the share and release all resources.
@@ -303,24 +302,32 @@ class Smb2Client implements Finalizable {
   /// Sends a wire-level logoff (`smb2_disconnect_share_async`) so the
   /// server can reclaim the session, then frees the local context.
   void disconnect() {
-    if (_ctx == nullptr) return;
-    _finalizer.detach(this);
-    _disconnectQuiet(_ctx);
-    _native.smb2_destroy_context(_ctx);
-    _ctx = nullptr;
-    // Safe to release the native callback now: any operation still pending
-    // inside libsmb2 died with the context above.
-    _pump.dispose();
+    final context = _context;
+    if (context == null) return;
+    try {
+      if (context.isAlive) _disconnectQuiet(context);
+    } finally {
+      abort();
+    }
+  }
+
+  /// Immediately releases the local context without waiting for the server.
+  /// Safe to call repeatedly. The client may be connected again afterwards.
+  void abort() {
+    final context = _context;
+    _context = null;
+    context?.abort();
   }
 
   /// Best-effort wire-level logoff. Failures are swallowed — the caller
   /// destroys the context right after, which releases everything locally.
-  void _disconnectQuiet(Pointer<smb2_context> ctx) {
+  void _disconnectQuiet(NativeSmb2Context context) {
+    final ctx = context.pointer;
     try {
       // Completion status is ignored — nothing actionable on a failed
       // logoff; the caller destroys the context right after.
       _pump.run(
-        ctx,
+        context,
         opName: 'Disconnect',
         start: (cb, cbData) =>
             _native.smb2_disconnect_share_async(ctx, cb, cbData),
@@ -535,14 +542,12 @@ class Smb2Client implements Finalizable {
       final res = _op(
         'Readlink failed',
         (cb, cbData) => _native.smb2_readlink_async(_ctx, p, cb, cbData),
-        capture: (status, data) => status < 0 || data == nullptr
-            ? null
-            : data.cast<Utf8>().toDartString(),
+        copyCString: true,
       );
       if (res.status < 0) {
         throw _makeError(_ctx, 'Readlink failed', -res.status);
       }
-      return (res.captured as String?) ?? '';
+      return res.captured ?? '';
     });
   }
 
@@ -842,6 +847,14 @@ class Smb2Client implements Finalizable {
 
   // ─── Helpers ────────────────────────────────────────────────────────────
 
+  NativeSmb2Context _createContext(String failureMessage) {
+    try {
+      return _lifecycle.create(_initContext, _destroyContext);
+    } on StateError {
+      throw Smb2Exception(failureMessage);
+    }
+  }
+
   void _ensureConnected() {
     if (_ctx == nullptr) {
       throw const Smb2Exception('Not connected. Call connect() first.');
@@ -852,14 +865,14 @@ class Smb2Client implements Finalizable {
   Smb2OpResult _op(
     String opName,
     int Function(smb2_command_cb cb, Pointer<Void> cbData) start, {
-    Object? Function(int status, Pointer<Void> data)? capture,
+    bool copyCString = false,
   }) =>
       _pump.run(
-        _ctx,
+        _context ?? (throw const Smb2Exception('Not connected')),
         opName: opName,
         start: start,
         timeoutSeconds: _timeoutSeconds,
-        capture: capture,
+        copyCString: copyCString,
       );
 
   /// Run one async operation and throw on a negative completion status.

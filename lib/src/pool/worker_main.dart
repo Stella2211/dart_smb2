@@ -260,16 +260,18 @@ void workerMain(InitMsg init) {
           replyTo?.send(true);
 
         case 'close':
-          // Close all open handles before disconnecting
-          for (final fh in handles.values) {
-            try {
-              client.closeHandle(fh);
-            } catch (_) {}
-          }
+          // Do not issue network CLOSE requests one by one here. Under loss,
+          // one such request can block teardown and a main-isolate timeout
+          // must never kill this isolate while a native callback is pending.
+          // abort() closes the native context locally and makes callbacks
+          // safe before acknowledging the worker shutdown.
           handles.clear();
-          client.disconnect();
-          replyTo?.send(true);
-          cmdPort.close();
+          try {
+            client.abort();
+            replyTo?.send(true);
+          } finally {
+            cmdPort.close();
+          }
       }
     } catch (e) {
       if (e is Smb2Exception) {

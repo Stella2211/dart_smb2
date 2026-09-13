@@ -6,7 +6,9 @@ Pod::Spec.new do |s|
   s.license          = { :type => 'BSD-3-Clause' }
   s.author           = { 'ales-drnz' => '' }
   s.source           = { :path => '.' }
-  s.source_files     = 'dart_smb2/Sources/dart_smb2/**/*'
+  s.source_files     = 'dart_smb2/Sources/dart_smb2/**/*',
+                       'dart_smb2/Sources/dart_smb2_lifecycle/**/*'
+  s.public_header_files = 'dart_smb2/Sources/dart_smb2_lifecycle/include/*.h'
   s.dependency 'FlutterMacOS'
   s.platform         = :osx, '12.0'
   s.swift_version    = '5.0'

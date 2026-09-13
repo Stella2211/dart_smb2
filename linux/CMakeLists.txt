@@ -3,6 +3,9 @@ cmake_minimum_required(VERSION 3.10)
 set(PROJECT_NAME "dart_smb2")
 project(${PROJECT_NAME} C)
 
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../src"
+                 "${CMAKE_CURRENT_BINARY_DIR}/lifecycle")
+
 if(POLICY CMP0135)
   cmake_policy(SET CMP0135 NEW)
 endif()
@@ -61,7 +64,10 @@ endif()
 
 if(EXISTS "${_BUNDLED_SMB2}")
   message(STATUS "[dart_smb2] Using bundled libsmb2: ${_BUNDLED_SMB2}")
-  set(dart_smb2_bundled_libraries "${_BUNDLED_SMB2}" PARENT_SCOPE)
+  set(dart_smb2_bundled_libraries
+    "${_BUNDLED_SMB2}"
+    "$<TARGET_FILE:dart_smb2_lifecycle>"
+    PARENT_SCOPE)
 else()
   message(FATAL_ERROR "[dart_smb2] libsmb2.so not found. It must be present at ${_BUNDLED_SMB2}")
 endif()
