@@ -2,7 +2,7 @@
 
 ### Changed
 - Updated the minimum Dart SDK to `3.11.0` and Flutter to `3.47.0`.
-- Updated the stable Dart toolchain dependencies to `ffi 2.2.0`, `meta 1.19.0`, `ffigen 22.0.0`, `lints 6.1.0` and `test 1.32.0`.
+- Updated the stable Dart toolchain dependencies to `ffi 2.2.0`, `meta 1.19.0`, `ffigen 23.0.0`, `lints 6.1.0` and `test 1.33.0`.
 - Regenerated the FFI bindings with ffigen 22 against the pinned, unmodified libsmb2 `6.2` headers, including the new context introspection symbols.
 - Updated every native build script to consume the upstream `libsmb2-6.2` submodule and disable optional Kerberos/GSSAPI discovery through the 6.2 CMake options.
 - Normalized the macOS/iOS xcframework archive root to `libsmb2.xcframework` and added release/checksum markers so stale extracted r8 frameworks cannot be reused.

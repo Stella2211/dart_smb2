@@ -1273,6 +1273,12 @@ final class UnnamedUnion$2 extends ffi.Union {
 }
 
 final class UnnamedUnion$3 extends ffi.Union {
+  external smb2_oplock_break_acknowledgement oplock;
+
+  external smb2_lease_break_acknowledgement lease;
+}
+
+final class UnnamedUnion$4 extends ffi.Union {
   external smb2_oplock_break_notification oplock;
 
   external smb2_oplock_break_reply oplockrep;
@@ -1280,12 +1286,6 @@ final class UnnamedUnion$3 extends ffi.Union {
   external smb2_lease_break_notification lease;
 
   external smb2_lease_break_reply leaserep;
-}
-
-final class UnnamedUnion$4 extends ffi.Union {
-  external smb2_oplock_break_acknowledgement oplock;
-
-  external smb2_lease_break_acknowledgement lease;
 }
 
 final class dcerpc_utf16 extends ffi.Struct {
