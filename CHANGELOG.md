@@ -9,11 +9,25 @@
 - Added a selectable integration-test environment and verified the real Samba suite can target host port `1445` via libsmb2's `host:port` connection form.
 - Refreshed the CI and native-release actions to current stable `checkout`, `upload-artifact`, `download-artifact`, Flutter, and Java setup releases.
 - Kept the fork's Dart event pump, raw libsmb2 build and native lifecycle helper. The upstream 0.1.2 changes require a different patched libsmb2-r7 build and do not replace these teardown guarantees.
+- `Smb2Client` reads and writes pipeline up to 4 requests per context (no native ABI change), sized from the negotiated max read/write size; short replies are re-requested.
+- Reads stage through one reusable native buffer (its size reported to the GC) and return exact-size Dart `Uint8List`s; writes stream through staging instead of copying the whole payload to native memory.
+- `Smb2Stat` keeps timestamps as epoch seconds and builds `DateTime`s lazily; `exists` no longer builds a stat or an exception for a plain not-found.
+- Requests go to the worker with the fewest requests in flight instead of strict round-robin (ties still rotate).
+- `Smb2Pool.connect` validates `workers` (`1..64`), `minWorkers` (`1..workers`) and `idleTimeout` (positive) and throws `RangeError` / `ArgumentError` instead of creating an unusable pool.
+- Each worker uses one shared reply port with request ids instead of a `ReceivePort` per request; the GC finalizer's best-effort handle close is fire-and-forget.
+- Concurrent connection failures on the same handle (read-ahead / pipelined writes) now share a single reconnect + reopen instead of reopening the file once per request; reconnect spawns go through the same serial spawn queue as the initial spawn.
 
 ### Fixed
+- `Smb2Client.readFileChunked` advanced by the requested size instead of the bytes actually read, silently dropping data when the server clamped a read below `chunkSize`. It now advances by the real count and throws on a mid-stream 0-byte read; `chunkSize <= 0` is rejected.
+- A zero-length `readHandle`/`readFileRange` returns empty instead of issuing a read with a wrapped-around length; a 0-byte `pwrite` now throws instead of leaving a short file.
+- The event pump's `pollfd` allocation is now freed by a `NativeFinalizer`.
+- A pool handle whose worker had already been replaced by another operation's reconnect now reopens on a live worker instead of retrying on the dead one; a failed reopen leaves the handle invalid instead of reusing its old id on the new worker (which could alias another open file).
 - Removed the obsolete `package_api_docs` analyzer rule and updated the reconnect callback to the current Dart analyzer conventions.
 
 ### Added
+- `Smb2Pool.connect` accepts optional `minWorkers` and `idleTimeout` for lazy start and idle shrinking. With `minWorkers < workers`, only `minWorkers` are started up front and extra workers are spawned on demand (serially, like the initial spawn) when every running worker is busy. With `idleTimeout`, extra workers idle for that long are retired; a worker that owns an open handle is never retired. Defaults keep the previous behavior (all workers started up front, none retired). New getters `Smb2Pool.minWorkers` / `maxWorkers` and constant `Smb2Pool.maxWorkersLimit`.
+- `Smb2Pool.streamFile` / `downloadToFile` take an optional `maxInFlight` (default `2`): the next chunk is read while the listener handles the current one. Outstanding reads are awaited and discarded before the handle is closed on cancel, error or early `break`. `maxInFlight: 1` restores strictly serial reads.
+- `Smb2Pool.streamWrite` takes an optional `maxInFlight` (default `2`) that pipelines chunk writes while preserving order and first-error propagation.
 - `Smb2Pool.listSharesOn` and `Smb2Client.listShares` now accept `seal`/`signing` parameters, mirroring `connect`/`Smb2Pool.connect`. Share enumeration against a security-hardened server can now require SMB3 encryption and/or packet signing, matching the guarantees already available for `connect`.
 
 ## [0.2.0] - 02-07-2026

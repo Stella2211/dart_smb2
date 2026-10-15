@@ -72,9 +72,10 @@ void main() {
         // the stream (the one for the second chunk) returns an empty
         // buffer. The first read (offset=0) succeeds normally, advancing
         // `offset` past 0; then the zero-byte reply triggers the M2 guard.
-        // The stream picks workers via _nextWorker round-robin; with a
-        // single-worker pool there's no ambiguity about which worker
-        // services the next read.
+        // With a single-worker pool there's no ambiguity about which
+        // worker services the next read. Read-ahead is disabled so the
+        // second read is only issued after the injection is installed
+        // (the read-ahead variant lives in pool_scheduling_test.dart).
         const chunkSize = 64 * 1024;
         final fileSize = await pool.fileSize(path);
         expect(
@@ -86,7 +87,7 @@ void main() {
         // First chunk: real read. After it lands, install the injection
         // before we pull the second chunk.
         final iterator = StreamIterator(
-          pool.streamFile(path, chunkSize: chunkSize),
+          pool.streamFile(path, chunkSize: chunkSize, maxInFlight: 1),
         );
         try {
           expect(await iterator.moveNext(), isTrue);
@@ -360,6 +361,70 @@ void main() {
       await pool.ftruncateHandle(handle, 3); // reopen + retry
       await pool.closeHandle(handle);
       expect(await pool.fileSize(path), 3);
+    });
+
+    test(
+      'handle reopen after another op already replaced its worker',
+      () async {
+        final pool = await connect();
+        addTearDown(pool.disconnect);
+        final handle = await pool.openFile(seed);
+        addTearDown(() => pool.closeHandle(handle));
+        final original = poolWorkers(pool).single;
+        // A non-handle op fails first and finishes the reconnect on its
+        // own, so the handle's worker is no longer in the pool when the
+        // handle notices. The reopen must use the replacement worker,
+        // not retry on the dead original.
+        await failNext(pool);
+        await pool.stat(seed);
+        expect(identical(poolWorkers(pool).single, original), isFalse);
+        expect(original.isDead, isTrue);
+        final bytes = await pool.readFromHandle(handle, length: 128);
+        expect(bytes.length, 128);
+      },
+    );
+
+    test('a failed reopen never reads through a stale handle id', () async {
+      final pool = await connect();
+      const gone = 'reconnect_stale_gone.bin';
+      const other = 'reconnect_stale_other.bin';
+      addTearDown(() async {
+        for (final path in [gone, other]) {
+          try {
+            await pool.deleteFile(path);
+          } catch (_) {}
+        }
+        await pool.disconnect();
+      });
+      await pool.writeFile(gone, Uint8List.fromList(List.filled(64, 1)));
+      await pool.writeFile(other, Uint8List.fromList(List.filled(64, 2)));
+
+      final stale = await pool.openFile(gone);
+      addTearDown(() => pool.closeHandle(stale));
+      // Replace the worker through another op, then remove the file the
+      // stale handle points at so its reopen fails.
+      await failNext(pool);
+      await pool.stat(gone);
+      await pool.deleteFile(gone);
+      // On the replacement worker this gets the id the stale handle had
+      // on the original one.
+      final live = await pool.openFile(other);
+      addTearDown(() => pool.closeHandle(live));
+      expect(live.id, stale.id);
+
+      await expectLater(
+        pool.readFromHandle(stale, length: 64),
+        throwsA(isA<Smb2Exception>()),
+      );
+      // The failed reopen must not leave `stale` aliasing `live`.
+      await expectLater(
+        pool.readFromHandle(stale, length: 64),
+        throwsA(isA<Smb2Exception>()),
+      );
+      expect(
+        await pool.readFromHandle(live, length: 64),
+        everyElement(equals(2)),
+      );
     });
   });
 }

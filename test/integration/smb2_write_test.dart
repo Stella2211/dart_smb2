@@ -53,6 +53,7 @@ void main() {
         '$testDir/renamed.txt',
         '$testDir/truncated.txt',
         '$testDir/to_delete.txt',
+        '$testDir/large_pipelined.bin',
       ]) {
         try {
           client.deleteFile(name);
@@ -104,6 +105,53 @@ void main() {
 
       final read = client.readFile('$testDir/write_chunked.bin');
       expect(String.fromCharCodes(read), equals('Hello World!'));
+    });
+
+    test('large files round-trip across many MaxRead/WriteSize requests', () {
+      // > Samba's 8 MiB MaxReadSize, with a ragged tail, so every path has
+      // to split the payload into several pipelined requests.
+      const size = 20 * 1024 * 1024 + 12345;
+      final data = Uint8List(size);
+      for (var i = 0; i < size; i++) {
+        data[i] = (i * 31 + (i >> 16)) & 0xff;
+      }
+      const path = '$testDir/large_pipelined.bin';
+      client.writeFile(path, data);
+
+      expect(client.fileSize(path), size);
+      expect(client.readFile(path), equals(data));
+
+      // Regression: a 16 MiB chunk exceeds MaxReadSize; the old loop
+      // advanced by the requested length and silently dropped bytes.
+      final builder = BytesBuilder(copy: false);
+      for (final chunk in client.readFileChunked(
+        path,
+        chunkSize: 16 * 1024 * 1024,
+      )) {
+        builder.add(chunk);
+      }
+      expect(builder.takeBytes(), equals(data));
+
+      final (handle, _) = client.openFileWithSize(path);
+      try {
+        expect(
+          client.readHandle(handle, offset: 3, length: 9 * 1024 * 1024),
+          equals(Uint8List.sublistView(data, 3, 3 + 9 * 1024 * 1024)),
+        );
+        // Past EOF: exactly the remaining bytes.
+        expect(
+          client.readHandle(handle, offset: size - 7, length: 4 << 20),
+          equals(Uint8List.sublistView(data, size - 7)),
+        );
+      } finally {
+        client.closeHandle(handle);
+      }
+
+      client.writeFileChunked(path, [
+        for (var off = 0; off < size; off += 300007)
+          Uint8List.sublistView(data, off, (off + 300007).clamp(0, size)),
+      ]);
+      expect(client.readFile(path), equals(data));
     });
 
     test('write handle open + write + close round-trip', () {

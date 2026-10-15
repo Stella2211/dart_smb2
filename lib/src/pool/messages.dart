@@ -9,6 +9,8 @@ library;
 
 import 'dart:isolate';
 
+import '../smb2_error_type.dart';
+import '../smb2_exceptions.dart';
 import '../smb2_types.dart';
 
 /// Connection parameters captured at [Smb2Pool.connect] time and reused
@@ -122,6 +124,43 @@ class InitMsg {
   });
 }
 
+/// A command sent from the main-isolate [Worker] proxy to a worker isolate.
+///
+/// [args] is handed over as-is (no spread copy into a combined map); the
+/// request metadata travels in dedicated fields instead of magic keys.
+/// [replyTo] is `null` for fire-and-forget commands (e.g. the GC
+/// finalizer's best-effort `closeHandle`), in which case the worker does
+/// not reply at all.
+class RequestMsg {
+  /// Command name dispatched by `workerMain`.
+  final String cmd;
+
+  /// Command arguments.
+  final Map<String, Object?> args;
+
+  /// Request id echoed back in [ReplyMsg.id]; meaningless without [replyTo].
+  final int id;
+
+  /// Shared per-worker reply port, or `null` when no reply is wanted.
+  final SendPort? replyTo;
+
+  /// Build a request; omit [replyTo] for a fire-and-forget command.
+  const RequestMsg(this.cmd, this.args, [this.id = 0, this.replyTo]);
+}
+
+/// A worker's reply to a [RequestMsg], tagged with the request [id] so a
+/// single shared reply port can demultiplex concurrent requests.
+class ReplyMsg {
+  /// The [RequestMsg.id] this reply answers.
+  final int id;
+
+  /// The result value, or an [ErrorMsg].
+  final Object? value;
+
+  /// Build a reply for request [id].
+  const ReplyMsg(this.id, this.value);
+}
+
 /// Wire format for errors crossing the isolate boundary.
 ///
 /// `Smb2Exception` itself contains an `Smb2ErrorType` enum that doesn't
@@ -140,4 +179,13 @@ class ErrorMsg {
 
   /// Build a wire-format error from a message, optional errno, and type index.
   ErrorMsg(this.message, [this.errorCode, this.errorTypeIndex]);
+
+  /// Reconstruct the typed [Smb2Exception] on the receiving side.
+  Smb2Exception toException() => Smb2Exception(
+    message,
+    errorCode,
+    errorTypeIndex != null
+        ? Smb2ErrorType.values[errorTypeIndex!]
+        : Smb2ErrorType.unknown,
+  );
 }

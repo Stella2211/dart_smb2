@@ -113,19 +113,41 @@ class Smb2Stat {
   /// Size in bytes. Zero for directories.
   final int size;
 
+  // Timestamps are either supplied as [DateTime]s (public constructor) or
+  // kept as raw epoch seconds and materialized on access. The raw form lets
+  // [Smb2Client.listDirectory] skip two DateTime allocations per entry —
+  // and keeps isolate messages smaller — for callers that never read them.
+  final DateTime? _modified;
+  final DateTime? _created;
+  final int _modifiedSeconds;
+  final int _createdSeconds;
+
   /// Last modification time.
-  final DateTime modified;
+  DateTime get modified => _modified ?? _utcFromSeconds(_modifiedSeconds);
 
   /// Creation (birth) time.
-  final DateTime created;
+  DateTime get created => _created ?? _utcFromSeconds(_createdSeconds);
 
   /// Build a [Smb2Stat]. All fields are required; timestamps are in UTC.
   const Smb2Stat({
     required this.type,
     required this.size,
-    required this.modified,
-    required this.created,
-  });
+    required DateTime modified,
+    required DateTime created,
+  }) : _modified = modified,
+       _created = created,
+       _modifiedSeconds = 0,
+       _createdSeconds = 0;
+
+  const Smb2Stat._epochSeconds({
+    required this.type,
+    required this.size,
+    required int modifiedSeconds,
+    required int createdSeconds,
+  }) : _modified = null,
+       _created = null,
+       _modifiedSeconds = modifiedSeconds,
+       _createdSeconds = createdSeconds;
 
   /// True if this is a directory.
   bool get isDirectory => type == Smb2FileType.directory;
@@ -148,6 +170,23 @@ class Smb2Stat {
   String toString() =>
       'Smb2Stat(type: $type, size: $size, modified: $modified)';
 }
+
+DateTime _utcFromSeconds(int seconds) =>
+    DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true);
+
+/// Internal: builds a [Smb2Stat] whose UTC timestamps are derived lazily
+/// from epoch seconds. Not exported from `package:dart_smb2`.
+Smb2Stat smb2StatFromEpochSeconds({
+  required Smb2FileType type,
+  required int size,
+  required int modifiedSeconds,
+  required int createdSeconds,
+}) => Smb2Stat._epochSeconds(
+  type: type,
+  size: size,
+  modifiedSeconds: modifiedSeconds,
+  createdSeconds: createdSeconds,
+);
 
 /// A directory entry returned by [Smb2Client.listDirectory].
 ///

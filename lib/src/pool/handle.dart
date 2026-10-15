@@ -9,7 +9,6 @@
 library;
 
 import 'dart:async';
-import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'pool.dart';
@@ -27,10 +26,28 @@ import 'worker.dart';
 /// helpers) for deterministic cleanup.
 class Smb2PoolHandle {
   /// The worker isolate that owns this open file. Swapped on reconnect.
-  Worker worker;
+  ///
+  /// Assigning moves the handle's slot in the per-worker open-handle
+  /// count, which keeps the pool from retiring an idle worker that still
+  /// owns open files.
+  Worker get worker => _worker;
+  set worker(Worker value) {
+    if (identical(value, _worker)) return;
+    if (!closed) {
+      _worker.openHandles--;
+      value.openHandles++;
+    }
+    _worker = value;
+  }
+
+  Worker _worker;
 
   /// The worker-local handle id. Swapped when the handle is reopened.
   int id;
+
+  /// Placeholder [id] while a reopen is pending (or after it failed). Worker
+  /// ids are non-negative, so the worker rejects it as an invalid handle.
+  static const int noId = -1;
 
   /// The share-relative path this handle was opened for (used to reopen).
   final String path;
@@ -39,7 +56,8 @@ class Smb2PoolHandle {
   bool closed = false;
 
   /// Bind a handle to its owning [worker] / [id] and arm the GC finalizer.
-  Smb2PoolHandle(this.worker, this.id, this.path) {
+  Smb2PoolHandle(Worker worker, this.id, this.path) : _worker = worker {
+    worker.openHandles++;
     _finalizer.attach(this, HandleRef(worker, id), detach: this);
   }
 
@@ -56,6 +74,7 @@ class Smb2PoolHandle {
   /// the close cmd is sent. Detaches the finalizer so we don't double-
   /// close on GC.
   void markClosed() {
+    if (!closed) _worker.openHandles--;
     closed = true;
     _finalizer.detach(this);
   }
@@ -64,19 +83,13 @@ class Smb2PoolHandle {
   /// The callback must not reference the enclosing `Smb2PoolHandle` —
   /// only the captured worker + id are allowed (otherwise the object
   /// can never become unreachable).
+  ///
+  /// Fire-and-forget: no reply port is allocated since nobody awaits the
+  /// outcome (the worker skips the reply when `replyTo` is null).
   static final Finalizer<HandleRef> _finalizer = Finalizer<HandleRef>((ref) {
-    try {
-      final port = ReceivePort();
-      ref.worker.sendPort.send({
-        'cmd': 'closeHandle',
-        'handleId': ref.id,
-        'replyTo': port.sendPort,
-      });
-      // Drain and close the reply port so it doesn't linger; we don't
-      // care about the result since the Dart object is already gone.
-      port.first.then((_) => port.close(), onError: (_) => port.close());
-    } catch (_) {
-      // Worker may be dead; best-effort is all we can promise here.
+    ref.worker.openHandles--;
+    if (ref.id != noId) {
+      ref.worker.post('closeHandle', {'handleId': ref.id});
     }
   });
 }

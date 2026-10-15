@@ -43,7 +43,7 @@ jobs:
       - run: flutter pub get
       # Unit suites only — test/integration requires the Samba bootstrap
       # (covered by the integration-linux job) and fails to load without it.
-      - run: dart test test/smb2_error_type_test.dart test/smb2_types_test.dart test/ffigen_smoke_test.dart
+      - run: dart test test/smb2_error_type_test.dart test/smb2_types_test.dart test/ffigen_smoke_test.dart test/pool_connect_args_test.dart test/io_pipeline_test.dart
 
   integration-linux:
     name: Integration tests vs Samba (vanilla libsmb2)
@@ -102,7 +102,7 @@ jobs:
           test -f "$LIB"
           printf '{"host":"","share":"","user":"","password":"","libPath":"%s","testFile":""}\n' "$LIB" \
             > test/integration/.bootstrap-cache.json
-      - run: dart test test/ffigen_smoke_test.dart
+      - run: dart test test/ffigen_smoke_test.dart test/pool_connect_args_test.dart test/io_pipeline_test.dart
 
   example-build:
     name: Example build (${{ matrix.target }})

@@ -26,11 +26,28 @@ class Worker {
   final ReceivePort _exitPort;
   final Future<void> _exitedFuture;
 
-  /// Currently-awaited [send] completers. Tracked so that if the worker
-  /// dies (Isolate-level exit OR explicit [close]) we can finish every
-  /// pending Future with a typed connection error instead of leaving
-  /// them hung forever waiting on a reply that's never coming.
-  final Set<Completer<dynamic>> _pending = {};
+  /// Shared reply channel for every [send] on this worker. Replies carry
+  /// the request id ([ReplyMsg.id]) so one long-lived port replaces the
+  /// per-request `ReceivePort` the hot path used to allocate.
+  final ReceivePort _replyPort = ReceivePort();
+
+  /// Currently-awaited [send] completers, keyed on request id. Tracked so
+  /// that if the worker dies (Isolate-level exit OR explicit [close]) we
+  /// can finish every pending Future with a typed connection error
+  /// instead of leaving them hung forever waiting on a reply that's never
+  /// coming.
+  final Map<int, Completer<Object?>> _pending = {};
+  int _nextRequestId = 0;
+
+  /// Number of [Smb2PoolHandle]s currently bound to this worker. Handles
+  /// are worker-local, so the pool never retires a worker that still owns
+  /// one (see `Smb2Pool` idle shrinking).
+  int openHandles = 0;
+
+  /// Monotonic timestamp (microseconds, [_clock]) of the last time this
+  /// worker had a request start or finish. Drives idle shrinking.
+  int _lastActiveMicros = _clock.elapsedMicroseconds;
+  static final Stopwatch _clock = Stopwatch()..start();
 
   bool _dead = false;
   bool _closing = false;
@@ -51,18 +68,24 @@ class Worker {
     // to once), so death is observed through the shared [exited] future
     // instead of a second `listen` call.
     exited.then((_) => _markDead());
+    _replyPort.listen(_onReply);
   }
-
-  /// Internal accessor used by [Smb2PoolHandle]'s GC finalizer to
-  /// best-effort close a leaked handle. Wrapping it as a getter keeps
-  /// [_sendPort] genuinely private to this file otherwise.
-  SendPort get sendPort => _sendPort;
 
   /// `true` once the worker isolate has exited (either via [close], an
   /// uncaught error, or an explicit kill). [send] starts rejecting
   /// immediately after this flips so callers don't queue up new requests
   /// against a dead worker.
   bool get isDead => _dead;
+
+  /// Number of [send] calls awaiting a reply. Used by the pool to route
+  /// new work to the least-loaded worker.
+  int get inFlight => _pending.length;
+
+  /// How long this worker has had no request in flight. [Duration.zero]
+  /// while a request is pending.
+  Duration get idleFor => _pending.isNotEmpty
+      ? Duration.zero
+      : Duration(microseconds: _clock.elapsedMicroseconds - _lastActiveMicros);
 
   /// Spawn a worker isolate with the given [ConnectParams] and wait for
   /// it to confirm a successful libsmb2 connection.
@@ -116,13 +139,22 @@ class Worker {
     throw Smb2Exception('Worker failed to start: $result');
   }
 
+  void _onReply(Object? msg) {
+    if (msg is! ReplyMsg) return;
+    final completer = _pending.remove(msg.id);
+    if (completer != null && !completer.isCompleted) {
+      completer.complete(msg.value);
+    }
+  }
+
   /// Send [cmd] with [args] and await its reply.
   ///
   /// Two races resolve the returned Future:
   ///
-  ///   1. The worker replies → the awaiting Completer completes with
-  ///      that value (or throws an [Smb2Exception] reconstructed from
-  ///      the wire-format [ErrorMsg]).
+  ///   1. The worker replies → [_onReply] looks the request id up in
+  ///      [_pending] and completes its Completer with that value (or the
+  ///      awaiter throws an [Smb2Exception] reconstructed from the
+  ///      wire-format [ErrorMsg]).
   ///   2. The worker dies → [_markDead] iterates every pending
   ///      Completer and finishes it with a typed connection
   ///      [Smb2Exception], so the awaiter sees an error instead of a
@@ -131,7 +163,10 @@ class Worker {
   /// Both paths share the same Completer; whichever fires first wins,
   /// and the other side is a no-op (the second check guards against
   /// `Completer.complete` being called twice).
-  Future<T> send<T>(String cmd, Map<String, dynamic> args) async {
+  ///
+  /// [args] is forwarded as-is (not copied); callers must not mutate it
+  /// after the call.
+  Future<T> send<T>(String cmd, Map<String, Object?> args) async {
     if (_dead || _closing) {
       throw const Smb2Exception(
         'Worker isolate is dead',
@@ -139,33 +174,33 @@ class Worker {
         Smb2ErrorType.connection,
       );
     }
-    final replyPort = ReceivePort();
-    final completer = Completer<dynamic>();
-    _pending.add(completer);
-    StreamSubscription<dynamic>? sub;
+    final id = _nextRequestId++;
+    final completer = Completer<Object?>();
+    _pending[id] = completer;
+    _lastActiveMicros = _clock.elapsedMicroseconds;
     try {
-      sub = replyPort.listen((msg) {
-        if (!completer.isCompleted) completer.complete(msg);
-      });
-      _sendPort.send({...args, 'cmd': cmd, 'replyTo': replyPort.sendPort});
+      _sendPort.send(RequestMsg(cmd, args, id, _replyPort.sendPort));
       final result = await completer.future;
-      if (result is ErrorMsg) {
-        throw Smb2Exception(
-          result.message,
-          result.errorCode,
-          result.errorTypeIndex != null
-              ? Smb2ErrorType.values[result.errorTypeIndex!]
-              : Smb2ErrorType.unknown,
-        );
-      }
+      if (result is ErrorMsg) throw result.toException();
       if (result is TransferableTypedData) {
         return result.materialize().asUint8List() as T;
       }
       return result as T;
     } finally {
-      _pending.remove(completer);
-      await sub?.cancel();
-      replyPort.close();
+      _pending.remove(id);
+      _lastActiveMicros = _clock.elapsedMicroseconds;
+    }
+  }
+
+  /// Fire-and-forget variant of [send]: no reply is requested, nothing is
+  /// tracked and errors are dropped. Used for best-effort cleanup (GC
+  /// finalizers, orphaned handles) where nobody awaits the outcome.
+  void post(String cmd, Map<String, Object?> args) {
+    if (_dead || _closing) return;
+    try {
+      _sendPort.send(RequestMsg(cmd, args));
+    } catch (_) {
+      // Best-effort only.
     }
   }
 
@@ -176,18 +211,25 @@ class Worker {
   void _markDead() {
     if (_dead) return;
     _dead = true;
-    const error = Smb2Exception(
-      'Worker isolate died with in-flight requests',
-      null,
-      Smb2ErrorType.connection,
+    _failPending(
+      const Smb2Exception(
+        'Worker isolate died with in-flight requests',
+        null,
+        Smb2ErrorType.connection,
+      ),
     );
+    _replyPort.close();
+    _exitPort.close();
+  }
+
+  void _failPending(Smb2Exception error) {
     // Snapshot to a list — completing a Completer triggers `finally`
     // blocks in `send` that mutate `_pending`.
-    for (final c in _pending.toList()) {
+    final completers = _pending.values.toList();
+    _pending.clear();
+    for (final c in completers) {
       if (!c.isCompleted) c.completeError(error);
     }
-    _pending.clear();
-    _exitPort.close();
   }
 
   /// Ask the worker to abort native resources locally and exit cleanly.
@@ -207,23 +249,25 @@ class Worker {
   Future<void> _closeImpl() async {
     if (_dead) return;
     _closing = true;
+    // A dedicated one-shot port (instead of [_replyPort]) keeps the close
+    // acknowledgement out of [_pending], which is failed wholesale below
+    // and again by [_markDead] when the isolate exits.
     final replyPort = ReceivePort();
     try {
       // Closing invalidates all outstanding requests. Complete them before
       // waiting for the worker's native abort acknowledgement.
-      const error = Smb2Exception(
-        'Worker is closing',
-        null,
-        Smb2ErrorType.connection,
+      _failPending(
+        const Smb2Exception(
+          'Worker is closing',
+          null,
+          Smb2ErrorType.connection,
+        ),
       );
-      for (final c in _pending.toList()) {
-        if (!c.isCompleted) c.completeError(error);
-      }
-      _sendPort.send({'cmd': 'close', 'replyTo': replyPort.sendPort});
+      _sendPort.send(RequestMsg('close', const {}, 0, replyPort.sendPort));
       // worker_main aborts its native context without waiting for network
       // CLOSE replies, then closes its command port. Never kill an isolate
       // while a native callback may still be unwinding.
-      final result = await Future.any<dynamic>([
+      final reply = await Future.any<Object?>([
         replyPort.first,
         _exitedFuture.then((_) => _workerExited),
       ]);
@@ -231,16 +275,9 @@ class Worker {
       // acknowledges first, wait for the actual isolate exit as well; an ACK
       // only means that abort() returned, not that native callbacks are no
       // longer able to run during isolate shutdown.
-      if (identical(result, _workerExited)) return;
-      if (result is ErrorMsg) {
-        throw Smb2Exception(
-          result.message,
-          result.errorCode,
-          result.errorTypeIndex != null
-              ? Smb2ErrorType.values[result.errorTypeIndex!]
-              : Smb2ErrorType.unknown,
-        );
-      }
+      if (identical(reply, _workerExited)) return;
+      final result = reply is ReplyMsg ? reply.value : reply;
+      if (result is ErrorMsg) throw result.toException();
       if (result != true) {
         throw const Smb2Exception(
           'Worker close returned an invalid acknowledgement',

@@ -285,7 +285,7 @@ client.disconnect();
 
 #### 1.2 Worker Pool
 
-Spawns N isolate workers connected to the same share. Operations are dispatched round-robin. If a worker loses connection, it automatically reconnects and retries the operation.
+Spawns N isolate workers connected to the same share. Each operation goes to the worker with the fewest requests in flight (round-robin among equally loaded workers). If a worker loses connection, it automatically reconnects and retries the operation.
 
 For single-connection use cases (the old `Smb2Isolate`), set `workers: 1` — you get the same single-connection semantics plus automatic reconnect.
 
@@ -304,6 +304,20 @@ print('Active workers: ${pool.workerCount}');
 final entries = await pool.listDirectory('');
 await pool.disconnect();
 ```
+
+`workers` must be between 1 and `Smb2Pool.maxWorkersLimit` (64). By default every worker is started by `connect` and kept until `disconnect`. To save connections on mostly idle pools, opt into lazy start and idle shrinking:
+
+```dart
+final pool = await Smb2Pool.connect(
+  host: '192.168.1.100',
+  share: 'Files',
+  workers: 4,                              // upper bound
+  minWorkers: 1,                           // started by connect, never retired
+  idleTimeout: const Duration(minutes: 1), // retire extra workers idle this long
+);
+```
+
+Extra workers are spawned on demand (one at a time) when every running worker is busy, up to `workers`. A worker that still owns an open file handle is never retired.
 
 #### 1.3 Disconnecting
 
@@ -575,9 +589,10 @@ await for (final chunk in pool.streamFile(
 | :--- | :--- | :--- |
 | `chunkSize` | `1 MiB` | Dart-side buffer per iteration. Network-level chunking is automatic (libsmb2 splits into server-negotiated `MaxReadSize` packets, typically 1 MiB). |
 | `onProgress` | — | Called after each chunk with `(received, total)` byte counts. |
-| `isCanceled` | — | Polled after each chunk. Returning `true` aborts the stream with `Smb2Exception`. |
+| `isCanceled` | — | Polled before each chunk is awaited. Returning `true` aborts the stream with `Smb2Exception`. |
+| `maxInFlight` | `2` | Read-ahead bound: chunks outstanding at once, counting the one being processed. With `2` the next chunk is read while you handle the current one; `1` disables read-ahead. |
 
-The handle is closed automatically when the stream completes, errors, or the listener cancels its subscription.
+The handle is closed automatically when the stream completes, errors, or the listener cancels its subscription; outstanding read-ahead requests are awaited and discarded first. `downloadToFile` accepts the same `maxInFlight`.
 
 #### 5.5 Download to File
 
@@ -696,6 +711,8 @@ client.writeFileChunked('data/large_file.bin', generateChunks());
 final fileStream = File('local_file.bin').openRead().cast<Uint8List>();
 await pool.streamWrite('data/large_file.bin', fileStream);
 ```
+
+`streamWrite` keeps up to `maxInFlight` (default `2`) chunk writes outstanding so the next chunk is sent while the previous one is written; chunks are still written strictly in order, and the first failure stops the stream. Pass `maxInFlight: 1` to wait for each write.
 
 #### 6.4 File Handles (Write)
 

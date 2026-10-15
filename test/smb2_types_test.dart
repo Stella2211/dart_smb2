@@ -3,6 +3,7 @@
 // Use of this source code is governed by BSD 3-Clause license that can be found in the LICENSE file.
 
 import 'package:dart_smb2/dart_smb2.dart';
+import 'package:dart_smb2/src/smb2_types.dart' show smb2StatFromEpochSeconds;
 import 'package:test/test.dart';
 
 void main() {
@@ -88,6 +89,20 @@ void main() {
 
     test('toString includes type and size', () {
       expect(file.toString(), contains('42'));
+    });
+
+    test('epoch-seconds form materializes equal UTC timestamps', () {
+      final lazy = smb2StatFromEpochSeconds(
+        type: Smb2FileType.file,
+        size: 42,
+        modifiedSeconds: DateTime.utc(2024).millisecondsSinceEpoch ~/ 1000,
+        createdSeconds: DateTime.utc(2024).millisecondsSinceEpoch ~/ 1000,
+      );
+      expect(lazy.modified, DateTime.utc(2024));
+      expect(lazy.modified.isUtc, isTrue);
+      expect(lazy.created, DateTime.utc(2024));
+      expect(lazy, file);
+      expect(lazy.hashCode, file.hashCode);
     });
   });
 

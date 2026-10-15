@@ -76,10 +76,16 @@ void workerMain(InitMsg init) {
   // simulate a server returning 0 bytes mid-stream (truncated file).
   bool injectReadHandleZeroNext = false;
 
-  cmdPort.listen((msg) {
-    if (msg is! Map) return;
-    final cmd = msg['cmd'] as String;
-    final replyTo = msg['replyTo'] as SendPort?;
+  cmdPort.listen((Object? message) {
+    if (message is! RequestMsg) return;
+    final cmd = message.cmd;
+    final msg = message.args;
+    final replyTo = message.replyTo;
+    final requestId = message.id;
+    // Every reply is tagged with the request id: the main isolate shares
+    // one reply port across all in-flight requests of this worker.
+    // Fire-and-forget requests (replyTo == null) get no reply at all.
+    void reply(Object? value) => replyTo?.send(ReplyMsg(requestId, value));
 
     // Apply pending fault injection BEFORE the normal switch, unless the
     // command itself is an injection knob (those always run).
@@ -92,7 +98,7 @@ void workerMain(InitMsg init) {
       }
       if (injectFailureCount > 0) {
         injectFailureCount--;
-        replyTo?.send(
+        reply(
           ErrorMsg(
             'Injected connection failure',
             null,
@@ -108,21 +114,21 @@ void workerMain(InitMsg init) {
         // ── Test-only fault injection commands ────────────────────────
         case '__inject_fail_next_n':
           injectFailureCount = msg['count'] as int;
-          replyTo?.send(true);
+          reply(true);
           return;
         case '__inject_hang':
           injectHangNext = true;
-          replyTo?.send(true);
+          reply(true);
           return;
         case '__inject_readhandle_zero_next':
           injectReadHandleZeroNext = true;
-          replyTo?.send(true);
+          reply(true);
           return;
 
         case 'listDir':
-          replyTo?.send(client.listDirectory(msg['path'] as String));
+          reply(client.listDirectory(msg['path'] as String));
         case 'listShares':
-          replyTo?.send(
+          reply(
             client.listShares(
               host: msg['host'] as String,
               user: msg['user'] as String?,
@@ -136,38 +142,38 @@ void workerMain(InitMsg init) {
             offset: msg['offset'] as int? ?? 0,
             length: msg['length'] as int,
           );
-          replyTo?.send(TransferableTypedData.fromList([rangeData]));
+          reply(TransferableTypedData.fromList([rangeData]));
         case 'readFile':
           final fileData = client.readFile(msg['path'] as String);
-          replyTo?.send(TransferableTypedData.fromList([fileData]));
+          reply(TransferableTypedData.fromList([fileData]));
         case 'stat':
-          replyTo?.send(client.stat(msg['path'] as String));
+          reply(client.stat(msg['path'] as String));
         case 'fileSize':
-          replyTo?.send(client.fileSize(msg['path'] as String));
+          reply(client.fileSize(msg['path'] as String));
 
         case 'echo':
           client.echo();
-          replyTo?.send(true);
+          reply(true);
         case 'statvfs':
-          replyTo?.send(client.statvfs(msg['path'] as String));
+          reply(client.statvfs(msg['path'] as String));
         case 'readlink':
-          replyTo?.send(client.readlink(msg['path'] as String));
+          reply(client.readlink(msg['path'] as String));
         case 'fsync':
           final fhSync = handles[msg['handleId'] as int];
           if (fhSync == null) {
-            replyTo?.send(ErrorMsg('Invalid handle'));
+            reply(ErrorMsg('Invalid handle'));
             return;
           }
           client.fsync(fhSync);
-          replyTo?.send(true);
+          reply(true);
         case 'ftruncate':
           final fhTrunc = handles[msg['handleId'] as int];
           if (fhTrunc == null) {
-            replyTo?.send(ErrorMsg('Invalid handle'));
+            reply(ErrorMsg('Invalid handle'));
             return;
           }
           client.ftruncate(fhTrunc, msg['length'] as int);
-          replyTo?.send(true);
+          reply(true);
 
         // ── Write commands ────────────────────────────────────────────
         case 'writeRange':
@@ -179,49 +185,49 @@ void workerMain(InitMsg init) {
             writeRangeData,
             offset: msg['offset'] as int? ?? 0,
           );
-          replyTo?.send(true);
+          reply(true);
         case 'writeFile':
           final writeFileData = (msg['data'] as TransferableTypedData)
               .materialize()
               .asUint8List();
           client.writeFile(msg['path'] as String, writeFileData);
-          replyTo?.send(true);
+          reply(true);
         case 'deleteFile':
           client.deleteFile(msg['path'] as String);
-          replyTo?.send(true);
+          reply(true);
         case 'mkdir':
           client.mkdir(msg['path'] as String);
-          replyTo?.send(true);
+          reply(true);
         case 'rmdir':
           client.rmdir(msg['path'] as String);
-          replyTo?.send(true);
+          reply(true);
         case 'rename':
           client.rename(msg['oldPath'] as String, msg['newPath'] as String);
-          replyTo?.send(true);
+          reply(true);
         case 'truncate':
           client.truncate(msg['path'] as String, msg['length'] as int);
-          replyTo?.send(true);
+          reply(true);
 
         // ── File handle commands ──────────────────────────────────────
         case 'openFile':
           final fh = client.openFileHandle(msg['path'] as String);
           final id = nextHandleId++;
           handles[id] = fh;
-          replyTo?.send(id);
+          reply(id);
         case 'openFileWithSize':
           final (fh, size) = client.openFileWithSize(msg['path'] as String);
           final id = nextHandleId++;
           handles[id] = fh;
-          replyTo?.send([id, size]);
+          reply([id, size]);
         case 'readHandle':
           final fh = handles[msg['handleId'] as int];
           if (fh == null) {
-            replyTo?.send(ErrorMsg('Invalid handle'));
+            reply(ErrorMsg('Invalid handle'));
             return;
           }
           if (injectReadHandleZeroNext) {
             injectReadHandleZeroNext = false;
-            replyTo?.send(TransferableTypedData.fromList([Uint8List(0)]));
+            reply(TransferableTypedData.fromList([Uint8List(0)]));
             return;
           }
           final handleData = client.readHandle(
@@ -229,16 +235,22 @@ void workerMain(InitMsg init) {
             offset: msg['offset'] as int? ?? 0,
             length: msg['length'] as int,
           );
-          replyTo?.send(TransferableTypedData.fromList([handleData]));
+          // One copy either way: `fromList` copies into a transferable
+          // buffer that the main isolate materializes without copying,
+          // whereas sending the Uint8List itself would be copied by the
+          // message serializer instead. Keeping the explicit copy also
+          // makes it safe for Smb2Client to hand back views into a reused
+          // native read buffer.
+          reply(TransferableTypedData.fromList([handleData]));
         case 'openFileWrite':
           final fh = client.openFileHandleWrite(msg['path'] as String);
           final id = nextHandleId++;
           handles[id] = fh;
-          replyTo?.send(id);
+          reply(id);
         case 'writeHandle':
           final fh = handles[msg['handleId'] as int];
           if (fh == null) {
-            replyTo?.send(ErrorMsg('Invalid handle'));
+            reply(ErrorMsg('Invalid handle'));
             return;
           }
           final writeHandleData = (msg['data'] as TransferableTypedData)
@@ -249,12 +261,12 @@ void workerMain(InitMsg init) {
             writeHandleData,
             offset: msg['offset'] as int? ?? 0,
           );
-          replyTo?.send(true);
+          reply(true);
         case 'closeHandle':
           final id = msg['handleId'] as int;
           final fh = handles.remove(id);
           if (fh != null) client.closeHandle(fh);
-          replyTo?.send(true);
+          reply(true);
 
         case 'close':
           // Do not issue network CLOSE requests one by one here. Under loss,
@@ -265,16 +277,16 @@ void workerMain(InitMsg init) {
           handles.clear();
           try {
             client.abort();
-            replyTo?.send(true);
+            reply(true);
           } finally {
             cmdPort.close();
           }
       }
     } catch (e) {
       if (e is Smb2Exception) {
-        replyTo?.send(ErrorMsg(e.message, e.errorCode, e.type.index));
+        reply(ErrorMsg(e.message, e.errorCode, e.type.index));
       } else {
-        replyTo?.send(ErrorMsg(e.toString()));
+        reply(ErrorMsg(e.toString()));
       }
     }
   });

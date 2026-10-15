@@ -15,4 +15,4 @@ export 'src/pool/pool.dart';
 export 'src/smb2_client.dart' show Smb2Client, Smb2Handle;
 export 'src/smb2_error_type.dart';
 export 'src/smb2_exceptions.dart';
-export 'src/smb2_types.dart';
+export 'src/smb2_types.dart' hide smb2StatFromEpochSeconds;

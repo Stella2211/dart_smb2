@@ -88,7 +88,11 @@ void installTestLibPath() {
 /// When the cache is missing, throws — but `setUpAll` guarded by the outer
 /// `group(skip: bootstrapSkipReason)` should never run, so this is only a
 /// belt-and-braces safeguard for direct invocations.
-Future<Smb2Pool> poolFromCache({int workers = 2}) {
+Future<Smb2Pool> poolFromCache({
+  int workers = 2,
+  int? minWorkers,
+  Duration? idleTimeout,
+}) {
   installTestLibPath();
   final cache = Smb2BootstrapCache.load();
   return Smb2Pool.connect(
@@ -97,6 +101,8 @@ Future<Smb2Pool> poolFromCache({int workers = 2}) {
     user: cache.user,
     password: cache.password,
     workers: workers,
+    minWorkers: minWorkers,
+    idleTimeout: idleTimeout,
   );
 }
 
