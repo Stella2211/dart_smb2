@@ -355,24 +355,28 @@ typedef _PosixPollDart =
 /// macOS, iOS).
 const int _eintr = 4;
 
+/// `errno` accessor — the symbol name differs per libc:
+/// `__error` (Darwin), `__errno_location` (glibc), `__errno` (bionic).
+///
+/// Top-level on purpose: as a static of the [Finalizable] `_PosixPoller`,
+/// this closure initializer crashed release (AOT) builds in type-flow
+/// analysis ("Null check operator used on a null value").
+final Pointer<Int32> Function() _errnoLocation = () {
+  final process = DynamicLibrary.process();
+  for (final name in ['__error', '__errno_location', '__errno']) {
+    if (process.providesSymbol(name)) {
+      return process
+          .lookupFunction<Pointer<Int32> Function(), Pointer<Int32> Function()>(
+            name,
+          );
+    }
+  }
+  throw UnsupportedError('dart_smb2: no errno symbol found in this libc');
+}();
+
 class _PosixPoller implements _Poller {
   static final _PosixPollDart _poll = DynamicLibrary.process()
       .lookupFunction<_PosixPollNative, _PosixPollDart>('poll');
-
-  /// `errno` accessor — the symbol name differs per libc:
-  /// `__error` (Darwin), `__errno_location` (glibc), `__errno` (bionic).
-  static final Pointer<Int32> Function() _errnoLocation = () {
-    final process = DynamicLibrary.process();
-    for (final name in ['__error', '__errno_location', '__errno']) {
-      if (process.providesSymbol(name)) {
-        return process.lookupFunction<
-          Pointer<Int32> Function(),
-          Pointer<Int32> Function()
-        >(name);
-      }
-    }
-    throw UnsupportedError('dart_smb2: no errno symbol found in this libc');
-  }();
 
   _PosixPoller() {
     _pfd = _ownPollFd(this, calloc<_PollFdPosix>(), sizeOf<_PollFdPosix>());
